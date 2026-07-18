@@ -50,6 +50,12 @@ Settings → Pages). Every push to `main` publishes automatically — there is
 no build step. The `.nojekyll` file tells Pages to skip its default Jekyll
 processing.
 
+**When you change anything in `css/` or `js/`, bump the `?v=` value on the
+`<link>`/`<script>` tags in `index.html`** (today's date works). Pages caches
+files in browsers for 10 minutes, so without a bump, returning players can get
+the new HTML with the *old* scripts and styles — half-broken pages, ghost UI.
+The version tag forces every browser to fetch matching files.
+
 ## Project layout
 
 ```
