@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Ship Dash</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="stage">
+    <canvas id="game" width="960" height="540"></canvas>
+
+    <!-- Home screen -->
+    <div id="home" class="overlay">
+      <div class="coin-pill">🪙 <span class="coin-val">0</span></div>
+      <h1 class="title">SHIP&nbsp;DASH</h1>
+      <p class="tagline">Fly the ship. Dodge the spikes. Reach the end.</p>
+      <canvas id="homeShip" class="home-ship" width="220" height="130"></canvas>
+      <div class="home-actions">
+        <button id="playBtn" class="btn btn-big">▶&nbsp; Play</button>
+        <button id="flyBtn" class="btn btn-ghost btn-big">Straight Fly</button>
+        <button id="skinBtn" class="btn btn-ghost btn-big">Ships</button>
+      </div>
+      <div class="controls-hint">
+        <span class="key">SPACE</span> hold to rise &nbsp;·&nbsp; tap to hover &nbsp;·&nbsp; release to fall
+      </div>
+      <button id="chestBtn" class="chest-btn available" title="Daily chest">
+        <span class="chest-icon">🎁</span>
+        <span class="chest-label">Daily</span>
+      </button>
+    </div>
+
+    <!-- Level select -->
+    <div id="menu" class="overlay hidden">
+      <h2 class="screen-title">SELECT LEVEL</h2>
+      <div id="levelSelect" class="level-grid"></div>
+      <div class="screen-actions">
+        <button id="backFromLevels" class="btn btn-ghost">←&nbsp; Back</button>
+        <button id="resetProgress" class="link-btn">Reset progress</button>
+      </div>
+    </div>
+
+    <!-- Ship / skin select -->
+    <div id="skins" class="overlay hidden">
+      <div class="coin-pill">🪙 <span class="coin-val">0</span></div>
+      <h2 class="screen-title">CHOOSE YOUR SHIP</h2>
+      <div id="skinGrid" class="skin-grid"></div>
+      <button id="backFromSkins" class="btn btn-ghost">←&nbsp; Back</button>
+    </div>
+
+    <!-- In-level message (crash / complete / win) -->
+    <div id="message" class="overlay hidden">
+      <h2 id="messageTitle"></h2>
+      <p id="messageBody"></p>
+      <div id="rewardBox" class="reward-box hidden">
+        <div id="rewardEarned" class="reward-earned">+<span id="rewardEarnedNum">0</span> 🪙</div>
+        <div class="reward-total">Total&nbsp;&nbsp;🪙 <span id="rewardTotal">0</span></div>
+      </div>
+      <div class="message-actions">
+        <button id="primaryBtn" class="btn"></button>
+        <button id="menuBtn" class="btn btn-ghost">Level Select</button>
+      </div>
+      <p class="small-hint">Press <span class="key">SPACE</span> to continue · <span class="key">R</span> to retry · <span class="key">ESC</span> for menu</p>
+    </div>
+
+    <!-- Pause screen -->
+    <div id="pause" class="overlay hidden">
+      <h2 class="pause-title">PAUSED</h2>
+      <div class="message-actions">
+        <button id="resumeBtn" class="btn">Resume</button>
+        <button id="exitBtn" class="btn btn-ghost">Exit</button>
+      </div>
+      <p class="small-hint">Press <span class="key">ESC</span> or <span class="key">P</span> to resume</p>
+    </div>
+  </div>
+
+  <script src="js/levels.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
