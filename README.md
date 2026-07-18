@@ -35,9 +35,10 @@ Then open http://localhost:8000.
 
 ## Deploys
 
-Every push to `main` automatically deploys to GitHub Pages via
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). No build —
-the repo is served as-is.
+GitHub Pages serves the `main` branch as-is ("Deploy from a branch" in
+Settings → Pages). Every push to `main` publishes automatically — there is
+no build step. The `.nojekyll` file tells Pages to skip its default Jekyll
+processing.
 
 ## Project layout
 
