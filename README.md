@@ -2,7 +2,7 @@
 
 A game my kid is making, inspired by Geometry Dash.
 
-**Play it: https://jordancarney.github.io/ship-dash/**
+**Play it: https://jordan-carney.com/ship-dash/**
 
 Fly the ship. Dodge the spikes. Reach the end.
 
