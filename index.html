@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Ship Dash</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -20,6 +21,7 @@
         <button id="playBtn" class="btn btn-big">▶&nbsp; Play</button>
         <button id="flyBtn" class="btn btn-ghost btn-big">Straight Fly</button>
         <button id="skinBtn" class="btn btn-ghost btn-big">Ships</button>
+        <button id="createBtn" class="btn btn-ghost btn-big">✏️&nbsp;Create</button>
       </div>
       <div class="controls-hint">
         <span class="key">SPACE</span> hold to rise &nbsp;·&nbsp; tap to hover &nbsp;·&nbsp; release to fall
@@ -37,6 +39,51 @@
       <div class="screen-actions">
         <button id="backFromLevels" class="btn btn-ghost">←&nbsp; Back</button>
         <button id="resetProgress" class="link-btn">Reset progress</button>
+      </div>
+    </div>
+
+    <!-- Level creator: your levels -->
+    <div id="custom" class="overlay hidden">
+      <h2 class="screen-title">MY LEVELS</h2>
+      <p class="tagline">Build your own gauntlets, then fly them.</p>
+      <div id="customList" class="level-grid"></div>
+      <div class="screen-actions">
+        <button id="backFromCustom" class="btn btn-ghost">←&nbsp; Back</button>
+      </div>
+    </div>
+
+    <!-- Level creator: editor UI (the canvas underneath stays interactive) -->
+    <div id="editor" class="editor-ui hidden">
+      <div class="ed-bar ed-topbar">
+        <button id="edBack" class="btn btn-ghost btn-sm">←&nbsp;Back</button>
+        <input id="edName" class="ed-input ed-name" maxlength="24" placeholder="Level name" spellcheck="false" />
+        <label class="ed-len">LENGTH
+          <input id="edLength" class="ed-input" type="number" min="1000" max="20000" step="100" />
+          <span class="ed-unit">px</span>
+        </label>
+        <span id="edSaved" class="ed-saved">SAVED ✓</span>
+        <button id="edTest" class="btn btn-sm">▶&nbsp;Test</button>
+      </div>
+      <div class="ed-hint">Click to place · drag to move · scroll to pan · drag gates up &amp; down</div>
+      <div class="ed-bar ed-palette">
+        <button class="ed-tool" data-tool="select" title="Select and move spikes"><span class="sel-ic"></span>Select</button>
+        <button class="ed-tool" data-tool="bottom" title="Static spike on the floor"><span class="tri tri-up"></span>Floor</button>
+        <button class="ed-tool" data-tool="top" title="Static spike on the ceiling"><span class="tri tri-down"></span>Ceiling</button>
+        <button class="ed-tool" data-tool="launching" title="Moving spike that launches up from the floor"><span class="tri tri-up amber"></span>Launcher</button>
+        <button class="ed-tool" data-tool="falling" title="Moving spike that drops down from the ceiling"><span class="tri tri-down amber"></span>Faller</button>
+        <button class="ed-tool" data-tool="gate" title="Sliding gate with a moving hole"><span class="gate-ic"><span class="g-t"></span><span class="g-b"></span></span>Gate</button>
+      </div>
+      <div id="edProps" class="ed-props hidden">
+        <div class="ed-props-head">
+          <span id="edPropsTitle">SPIKE</span>
+          <button id="edDelete" class="mini-btn danger">🗑 Delete</button>
+        </div>
+        <label class="ed-row" id="rowW">Width<input type="range" id="sldW" min="16" max="220" step="2" /><span class="ed-val" id="valW"></span></label>
+        <label class="ed-row" id="rowH">Height<input type="range" id="sldH" min="30" max="520" step="5" /><span class="ed-val" id="valH"></span></label>
+        <label class="ed-row" id="rowLen">Reach<input type="range" id="sldLen" min="60" max="530" step="5" /><span class="ed-val" id="valLen"></span></label>
+        <label class="ed-row" id="rowGap">Hole<input type="range" id="sldGap" min="36" max="200" step="2" /><span class="ed-val" id="valGap"></span></label>
+        <label class="ed-row" id="rowAmp">Swing<input type="range" id="sldAmp" min="0" max="200" step="5" /><span class="ed-val" id="valAmp"></span></label>
+        <label class="ed-row" id="rowPer">Cycle<input type="range" id="sldPer" min="0.8" max="5" step="0.1" /><span class="ed-val" id="valPer"></span></label>
       </div>
     </div>
 
@@ -75,6 +122,7 @@
   </div>
 
   <script src="js/levels.js"></script>
+  <script src="js/music.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

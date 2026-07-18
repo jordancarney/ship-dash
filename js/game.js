@@ -27,6 +27,8 @@
   const DEFAULT_REWARD = 50; // coins for clearing a level with no explicit reward
   const FLYBEST_KEY = "shipdash.flybest.v1";
   const CHEST_KEY = "shipdash.chest.v1"; // date string of last daily-chest claim
+  const CUSTOM_KEY = "shipdash.custom.v1"; // user-created levels (level creator)
+  const CUSTOM_SPEED = 210;                // scroll speed for all custom levels
   // Straight Fly: endless tunnel that narrows from FLY_GAP_MAX down toward FLY_GAP_MIN.
   const FLY_SPEED = 190;
   const FLY_GAP_MAX = 380, FLY_GAP_MIN = 56, FLY_GAP_K = 2470;
@@ -82,6 +84,11 @@
   const chestBtn = document.getElementById("chestBtn");
   const homeShip = document.getElementById("homeShip");
   const homeCtx = homeShip.getContext("2d");
+  const createBtn = document.getElementById("createBtn");
+  const customEl = document.getElementById("custom");
+  const customListEl = document.getElementById("customList");
+  const backFromCustom = document.getElementById("backFromCustom");
+  const editorEl = document.getElementById("editor");
   const PAUSE_BTN = { x: W - 46, y: 10, w: 34, h: 34 }; // on-canvas pause button (top-right)
 
   // ----- State -----------------------------------------------------------
@@ -95,6 +102,10 @@
     mode: "level",            // "level" | "fly" (Straight Fly endless mode)
     flyTime: 0,               // current Straight Fly survival time
     flyBest: loadFlyBest(),   // best Straight Fly time
+    customLevels: loadCustomLevels(), // user-created levels (level creator)
+    custom: null,             // built custom level currently playing (null = built-in)
+    customSrc: null,          // raw custom level the run was built from
+    customFrom: null,         // "list" | "editor" — where to exit back to
     shipX: 120,
     y: H / 2,
     vy: 0,
@@ -165,6 +176,14 @@
     } catch (e) { return new Set(); }
   }
   function saveOwned() { storeSet(OWNED_KEY, JSON.stringify([...state.owned])); }
+  function loadCustomLevels() {
+    try {
+      const a = JSON.parse(storeGet(CUSTOM_KEY) || "[]");
+      if (!Array.isArray(a)) return [];
+      return a.filter((l) => l && typeof l.name === "string" && isFinite(l.length) && Array.isArray(l.items));
+    } catch (e) { return []; }
+  }
+  function saveCustomLevels() { storeSet(CUSTOM_KEY, JSON.stringify(state.customLevels)); }
   function isOwned(i) { return !!SKINS[i] && (SKINS[i].cost === 0 || state.owned.has(i)); }
   function updateCoinDisplays() {
     document.querySelectorAll(".coin-val").forEach((e) => { e.textContent = state.coins; });
@@ -663,6 +682,12 @@
     s.connect(g).connect(a.destination); s.start();
   }
 
+  // Per-level background music (js/music.js) — shares this file's AudioContext.
+  // The stub keeps the game alive if that script ever fails to load.
+  const MUSIC = window.MUSIC ||
+    { init() {}, playLevel() {}, playCustom() {}, playFly() {}, stop() {}, pause() {}, resume() {}, setMuted() {} };
+  MUSIC.init(ac);
+
   // ----- Geometry / collision -------------------------------------------
   // Current extension (0..len) of a moving spike at level-time t.
   // Smooth pump: retracted -> fully out -> retracted over one period.
@@ -723,12 +748,13 @@
     skinsEl.classList.add("hidden");
     messageEl.classList.add("hidden");
     pauseEl.classList.add("hidden");
+    customEl.classList.add("hidden");
+    editorEl.classList.add("hidden");
     state.coinAnim = null;
   }
 
-  function startLevel(i) {
-    state.mode = "level";
-    state.levelIndex = i;
+  // Reset ship/camera/effects and enter the "play" scene (shared by all modes).
+  function resetRun() {
     state.scene = "play";
     state.shipX = 120;
     state.y = H / 2;
@@ -741,6 +767,42 @@
     state.particles = [];
     hideAllOverlays();
     blurActive();
+    // every run gets its beat, restarted from the top (Geometry Dash style)
+    if (state.mode === "fly") MUSIC.playFly();
+    else if (state.custom) MUSIC.playCustom(state.customSrc && state.customSrc.id);
+    else MUSIC.playLevel(state.levelIndex);
+  }
+
+  function startLevel(i) {
+    state.mode = "level";
+    state.custom = state.customSrc = state.customFrom = null;
+    state.levelIndex = i;
+    resetRun();
+  }
+
+  // Launch a user-created level. `from` records where to exit back to
+  // ("list" = My Levels screen, "editor" = the level creator).
+  function startCustom(from) {
+    if (from) state.customFrom = from;
+    state.mode = "level";
+    state.custom = buildCustomLevel(state.customSrc);
+    if (state.customFrom === "editor") state.custom.hint = "Test flight!";
+    resetRun();
+  }
+
+  function restartRun() {
+    if (state.mode === "fly") startFly();
+    else if (state.custom) startCustom();
+    else startLevel(state.levelIndex);
+  }
+
+  function currentLevel() { return state.custom || LEVELS[state.levelIndex]; }
+
+  // Leave a run (or its end-of-run message) toward the right screen.
+  function exitRun() {
+    if (state.custom && state.customFrom === "editor") backToEditor();
+    else if (state.custom) goCustomMenu();
+    else goMenu();
   }
 
   // ----- Straight Fly (endless narrowing tunnel) -------------------------
@@ -753,18 +815,9 @@
   }
   function startFly() {
     state.mode = "fly";
-    state.scene = "play";
-    state.shipX = 120;
-    state.y = H / 2;
-    state.vy = 0;
-    state.held = false;
-    state.camX = 0;
-    state.elapsed = 0;
+    state.custom = state.customSrc = state.customFrom = null;
     state.flyTime = 0;
-    state.trail = [];
-    state.particles = [];
-    hideAllOverlays();
-    blurActive();
+    resetRun();
   }
 
   function goHome() {
@@ -802,6 +855,7 @@
   function goMenu() {            // level select
     state.scene = "menu";
     state.held = false;
+    MUSIC.stop();
     hideAllOverlays();
     renderMenu();
     menuEl.classList.remove("hidden");
@@ -821,6 +875,7 @@
     if (state.scene !== "play") return;
     state.scene = "paused";
     state.held = false;
+    MUSIC.pause();
     pauseEl.classList.remove("hidden");
     blurActive();
   }
@@ -829,6 +884,7 @@
     if (state.scene !== "paused") return;
     state.scene = "play";
     state.held = false;
+    MUSIC.resume();
     pauseEl.classList.add("hidden");
     blurActive();
   }
@@ -838,6 +894,7 @@
     if (state.scene !== "play") return;
     state.held = false;
     spawnExplosion(state.shipX, state.y);
+    MUSIC.stop();
     sfxCrash();
     if (state.mode === "fly") {        // Straight Fly: end the run, show your time
       const t = state.flyTime;
@@ -856,6 +913,21 @@
   }
 
   function complete() {
+    MUSIC.stop(); // silence for the clear jingle
+    // custom levels: no coins or unlocks, and exits lead back to where you came from
+    if (state.custom) {
+      state.scene = "complete";
+      sfxComplete();
+      if (state.customFrom === "editor") {
+        showMessage("complete", "LEVEL CLEAR!", "Your level works. Back to building!",
+          "Back to Editor ✏️", backToEditor, true);
+      } else {
+        showMessage("complete", "LEVEL CLEAR!", `You beat “${state.custom.name}”. Nice flying!`,
+          "Play Again ↺", () => startCustom(), false, "My Levels");
+      }
+      setupReward(0, state.coins);
+      return;
+    }
     const i = state.levelIndex;
     const isLast = i >= LEVELS.length - 1;
     // coins are awarded only on the FIRST clear (unlocked only advances then)
@@ -894,11 +966,12 @@
     }
   }
 
-  function showMessage(kind, title, body, primaryLabel, primaryAction, hideMenu) {
+  function showMessage(kind, title, body, primaryLabel, primaryAction, hideMenu, menuLabel) {
     messageEl.className = "overlay " + kind;
     messageTitle.textContent = title;
     messageBody.textContent = body;
     primaryBtn.textContent = primaryLabel;
+    menuBtn.textContent = menuLabel || "Level Select";
     menuBtn.style.display = hideMenu ? "none" : "";
     state.primaryAction = primaryAction;
     messageEl.classList.remove("hidden");
@@ -933,7 +1006,7 @@
   function update(dt) {
     if (state.mode === "fly") return updateFly(dt);
     state.elapsed += dt;
-    const lvl = LEVELS[state.levelIndex];
+    const lvl = currentLevel();
 
     // vertical physics
     state.vy += GRAVITY * dt;
@@ -991,6 +1064,7 @@
 
   // ----- Rendering -------------------------------------------------------
   function render() {
+    if (state.scene === "editor") { drawEditor(); return; }
     const inGame = state.scene === "play" || state.scene === "crash" ||
                    state.scene === "paused" || state.scene === "flyover";
     const camX = inGame ? state.camX : globalTime * 36; // gentle drift on menu
@@ -1005,7 +1079,7 @@
       drawFlyHUD();
       if (state.scene === "play") drawPauseButton();
     } else if (inGame) {
-      const lvl = LEVELS[state.levelIndex];
+      const lvl = currentLevel();
       drawSpikes(lvl, camX);
       drawFinish(lvl, camX);
       drawTrail(camX);
@@ -1104,9 +1178,11 @@
     ctx.fillStyle = band2; ctx.fillRect(0, H - 60, W, 60);
   }
 
-  function drawSpikes(lvl, camX) {
-    const t = state.elapsed;
-    for (const s of lvl.obstacles) {
+  function drawSpikes(lvl, camX) { drawObstacles(lvl.obstacles, camX, state.elapsed); }
+
+  // Draw game-format obstacles at level-time t (shared by play and the editor).
+  function drawObstacles(obstacles, camX, t) {
+    for (const s of obstacles) {
       const sx = s.x - camX;
       if (sx + s.w < -20 || sx > W + 20) continue;
       const gate = s.dir === "gateTop" || s.dir === "gateBottom";
@@ -1239,7 +1315,10 @@
     ctx.fillStyle = "rgba(232,238,252,0.85)";
     ctx.font = "bold 15px system-ui, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(`LEVEL ${state.levelIndex + 1} · ${lvl.name}`, pad, 40);
+    const label = state.custom
+      ? (state.customFrom === "editor" ? "TEST · " : "") + lvl.name
+      : `LEVEL ${state.levelIndex + 1} · ${lvl.name}`;
+    ctx.fillText(label, pad, 40);
   }
 
   function drawPauseButton() {
@@ -1413,13 +1492,503 @@
     homeCtx.restore();
   }
 
+  // ----- Level creator ---------------------------------------------------
+  // Users build levels from the same obstacle set as the built-in ones.
+  // A stored custom level is { id, name, length, items } where each item is
+  // a friendly shape that expands to game-format obstacles on play:
+  //   { kind:"spike",  dir:"bottom"|"top",           x, w, h }
+  //   { kind:"piston", dir:"launching"|"falling",    x, w, len, period }
+  //   { kind:"gate",                                 x, w, gap, amp, center, period }
+  // Everything autosaves to localStorage as you edit.
+
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+  // Expand one editor item into game obstacle(s). Moving items get the same
+  // "fair telegraph" phasing as the built-in levels: pistons are fully
+  // extended and gate holes centered exactly as the ship arrives.
+  function expandItem(it, speed) {
+    const tArr = (it.x + it.w / 2 - 120) / speed;
+    if (it.kind === "spike") return [{ x: it.x, w: it.w, h: it.h, dir: it.dir }];
+    if (it.kind === "piston") {
+      return [{ x: it.x, w: it.w, dir: it.dir, len: it.len, period: it.period, phase: 0.5 - tArr / it.period }];
+    }
+    const phase = -tArr / it.period;
+    return [
+      { x: it.x, w: it.w, dir: "gateTop",    gap: it.gap, amp: it.amp, center: it.center, period: it.period, phase },
+      { x: it.x, w: it.w, dir: "gateBottom", gap: it.gap, amp: it.amp, center: it.center, period: it.period, phase },
+    ];
+  }
+
+  function buildCustomLevel(src) {
+    const obstacles = [];
+    for (const it of src.items) obstacles.push(...expandItem(it, CUSTOM_SPEED));
+    obstacles.sort((a, b) => a.x - b.x);
+    return {
+      name: src.name || "Untitled",
+      subtitle: "Custom level",
+      hint: "Your creation — good luck, pilot!",
+      speed: CUSTOM_SPEED,
+      length: src.length,
+      obstacles,
+    };
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (ch) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  }
+
+  // --- My Levels screen ---
+  function goCustomMenu() {
+    state.scene = "custommenu";
+    state.held = false;
+    MUSIC.stop();
+    hideAllOverlays();
+    renderCustomMenu();
+    customEl.classList.remove("hidden");
+    blurActive();
+  }
+
+  function renderCustomMenu() {
+    customListEl.innerHTML = "";
+    const add = document.createElement("div");
+    add.className = "level-card new-level";
+    add.innerHTML = '<div class="new-plus">+</div><div class="name">New Level</div><div class="desc">Build your own!</div>';
+    add.addEventListener("click", () => { ac(); openEditor(null); });
+    customListEl.appendChild(add);
+
+    state.customLevels.forEach((lvl) => {
+      const n = lvl.items.length;
+      const card = document.createElement("div");
+      card.className = "level-card";
+      card.innerHTML =
+        '<div class="num">Custom</div>' +
+        `<div class="name">${escapeHtml(lvl.name)}</div>` +
+        `<div class="desc">${lvl.length}px · ${n} spike${n === 1 ? "" : "s"}</div>` +
+        '<span class="badge ready">▶ PLAY</span>' +
+        '<div class="card-actions">' +
+        '<button class="mini-btn" data-act="edit">✏️ Edit</button>' +
+        '<button class="mini-btn danger" data-act="del">🗑 Delete</button>' +
+        "</div>";
+      card.addEventListener("click", () => { ac(); state.customSrc = lvl; startCustom("list"); });
+      card.querySelector('[data-act="edit"]').addEventListener("click", (e) => {
+        e.stopPropagation(); ac(); openEditor(lvl.id);
+      });
+      const del = card.querySelector('[data-act="del"]');
+      del.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (del.classList.contains("confirm")) {   // second tap = really delete
+          state.customLevels = state.customLevels.filter((l) => l.id !== lvl.id);
+          saveCustomLevels();
+          renderCustomMenu();
+        } else {
+          del.classList.add("confirm");
+          del.textContent = "Sure?";
+          setTimeout(() => { del.classList.remove("confirm"); del.textContent = "🗑 Delete"; }, 2200);
+        }
+      });
+      customListEl.appendChild(card);
+    });
+  }
+
+  // --- Editor state & UI ---
+  const edUI = {
+    name: document.getElementById("edName"),
+    length: document.getElementById("edLength"),
+    back: document.getElementById("edBack"),
+    test: document.getElementById("edTest"),
+    saved: document.getElementById("edSaved"),
+    props: document.getElementById("edProps"),
+    propsTitle: document.getElementById("edPropsTitle"),
+    del: document.getElementById("edDelete"),
+    tools: [...editorEl.querySelectorAll(".ed-tool")],
+  };
+
+  const ED = {
+    lvl: null,     // the custom level being edited (live reference into state.customLevels)
+    fresh: false,  // created by this visit (discarded if left untouched)
+    dirty: false,  // any edit at all since opening
+    tool: "select",
+    sel: -1,
+    camX: 0,
+    drag: null,    // { type:"item"|"pan"|"scrub", ... }
+    hover: null,   // pointer position in canvas coords (for the ghost preview)
+    built: null,   // cached expanded obstacles for the animated preview
+    mem: {},       // last-used sizes per kind — new items copy them
+    saveTimer: 0,
+  };
+
+  const ED_MIN_X = 200;                            // keep a fair run-up after the start
+  const ED_MIN_LEN = 1000, ED_MAX_LEN = 20000;
+  const ED_SCRUB = { y: H - 18, h: 10, pad: 16 };  // bottom scrollbar (canvas-drawn)
+  const ED_DEFAULTS = {
+    spike:  { w: 60, h: 180 },
+    piston: { w: 90, len: 330, period: 2.2 },
+    gate:   { w: 70, gap: 80, amp: 90, period: 3.0 },
+  };
+  const ED_TITLES = { spike: "STATIC SPIKE", piston: "PISTON", gate: "GATE" };
+  const ED_DIRS = { bottom: "FLOOR", top: "CEILING", launching: "UP", falling: "DOWN" };
+
+  // property rows: which slider edits which field, for which item kinds
+  const ED_ROWS = [
+    { id: "W",   prop: "w",      kinds: { spike: 1, piston: 1, gate: 1 }, fmt: (v) => v + "px" },
+    { id: "H",   prop: "h",      kinds: { spike: 1 },                     fmt: (v) => v + "px" },
+    { id: "Len", prop: "len",    kinds: { piston: 1 },                    fmt: (v) => v + "px" },
+    { id: "Gap", prop: "gap",    kinds: { gate: 1 },                      fmt: (v) => v * 2 + "px" },
+    { id: "Amp", prop: "amp",    kinds: { gate: 1 },                      fmt: (v) => v + "px" },
+    { id: "Per", prop: "period", kinds: { piston: 1, gate: 1 },           fmt: (v) => v.toFixed(1) + "s" },
+  ];
+  for (const r of ED_ROWS) {
+    r.row = document.getElementById("row" + r.id);
+    r.sld = document.getElementById("sld" + r.id);
+    r.val = document.getElementById("val" + r.id);
+  }
+
+  function openEditor(id) {
+    let lvl = id != null ? state.customLevels.find((l) => l.id === id) : null;
+    ED.fresh = !lvl;
+    if (!lvl) {
+      lvl = {
+        id: "c" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
+        name: "My Level " + (state.customLevels.length + 1),
+        length: 3000,
+        items: [],
+      };
+      state.customLevels.push(lvl);
+      saveCustomLevels();
+    }
+    ED.lvl = lvl;
+    ED.dirty = false;
+    ED.sel = -1;
+    ED.camX = 0;
+    ED.drag = null;
+    ED.built = null;
+    setTool(lvl.items.length ? "select" : "bottom");
+    edUI.name.value = lvl.name;
+    edUI.length.value = lvl.length;
+    hideProps();
+    backToEditor();
+  }
+
+  // (Re)enter the editor scene without resetting what's being edited.
+  function backToEditor() {
+    state.scene = "editor";
+    state.held = false;
+    MUSIC.stop();
+    hideAllOverlays();
+    editorEl.classList.remove("hidden");
+    blurActive();
+  }
+
+  // Leave the editor for My Levels. A brand-new level left completely
+  // untouched is quietly discarded instead of cluttering the list.
+  function closeEditor() {
+    clearTimeout(ED.saveTimer);
+    if (ED.fresh && !ED.dirty && ED.lvl && !ED.lvl.items.length) {
+      state.customLevels = state.customLevels.filter((l) => l !== ED.lvl);
+    }
+    saveCustomLevels();
+    goCustomMenu();
+  }
+
+  function setTool(t) {
+    ED.tool = t;
+    for (const b of edUI.tools) b.classList.toggle("active", b.dataset.tool === t);
+  }
+
+  function edMaxCam() { return Math.max(0, ED.lvl.length + 300 - W); }
+
+  // autosave (debounced) + pulse the SAVED indicator
+  function edChanged() {
+    ED.dirty = true;
+    ED.built = null;
+    clearTimeout(ED.saveTimer);
+    ED.saveTimer = setTimeout(() => {
+      saveCustomLevels();
+      edUI.saved.classList.remove("flash");
+      void edUI.saved.offsetWidth;
+      edUI.saved.classList.add("flash");
+    }, 250);
+  }
+  function flushSave() { clearTimeout(ED.saveTimer); saveCustomLevels(); }
+
+  // --- properties panel ---
+  function showProps() {
+    const it = ED.lvl.items[ED.sel];
+    if (!it) return hideProps();
+    edUI.propsTitle.textContent = ED_TITLES[it.kind] + (it.dir ? " · " + ED_DIRS[it.dir] : "");
+    for (const r of ED_ROWS) {
+      const on = !!r.kinds[it.kind];
+      r.row.classList.toggle("hidden", !on);
+      if (on) {
+        if (r.prop === "w") r.sld.min = it.kind === "spike" ? 16 : 30;
+        r.sld.value = it[r.prop];
+        r.val.textContent = r.fmt(+it[r.prop]);
+      }
+    }
+    edUI.props.classList.remove("hidden");
+  }
+  function hideProps() { edUI.props.classList.add("hidden"); }
+
+  // remember the sizes used for this kind so the next placement matches
+  function rememberSizes(it) {
+    const m = {};
+    for (const r of ED_ROWS) if (r.kinds[it.kind]) m[r.prop] = it[r.prop];
+    ED.mem[it.kind] = m;
+  }
+
+  function deleteSelected() {
+    if (ED.sel < 0) return;
+    ED.lvl.items.splice(ED.sel, 1);
+    ED.sel = -1;
+    hideProps();
+    edChanged();
+  }
+
+  // --- placing & hit-testing ---
+  function snap10(v) { return Math.round(v / 10) * 10; }
+  function clampItemX(x, w) { return clamp(x, ED_MIN_X, Math.max(ED_MIN_X, ED.lvl.length - w)); }
+
+  function makeItem(tool, wx, wy) {
+    const kind = tool === "gate" ? "gate" : (tool === "launching" || tool === "falling") ? "piston" : "spike";
+    const it = Object.assign({ kind }, ED_DEFAULTS[kind], ED.mem[kind] || {});
+    if (kind === "gate") it.center = Math.round(clamp(wy, 100, 440));
+    else it.dir = tool;
+    it.x = clampItemX(snap10(wx - it.w / 2), it.w);
+    return it;
+  }
+
+  function placeItem(wx, wy) {
+    ED.lvl.items.push(makeItem(ED.tool, wx, wy));
+    ED.sel = ED.lvl.items.length - 1;
+    showProps();
+    edChanged();
+  }
+
+  // clickable footprint of an item (moving items use their full sweep)
+  function itemBounds(it) {
+    if (it.kind === "spike") {
+      return it.dir === "bottom"
+        ? { x: it.x, y: FLOOR - it.h, w: it.w, h: it.h }
+        : { x: it.x, y: CEIL, w: it.w, h: it.h };
+    }
+    if (it.kind === "piston") {
+      return it.dir === "launching"
+        ? { x: it.x, y: FLOOR - it.len, w: it.w, h: it.len }
+        : { x: it.x, y: CEIL, w: it.w, h: it.len };
+    }
+    return { x: it.x, y: CEIL, w: it.w, h: H }; // gate = the whole column
+  }
+
+  function edHitTest(wx, wy) {
+    const items = ED.lvl.items;
+    for (let i = items.length - 1; i >= 0; i--) {   // most recent on top
+      const b = itemBounds(items[i]);
+      if (wx >= b.x - 4 && wx <= b.x + b.w + 4 && wy >= b.y - 4 && wy <= b.y + b.h + 4) return i;
+    }
+    return -1;
+  }
+
+  // --- editor input ---
+  function edPointerDown(e) {
+    blurActive(); // release the name/length field so keys pan again
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+    const p = toCanvas(e);
+    if (p.y >= ED_SCRUB.y - 6) {                    // bottom scrollbar
+      ED.drag = { type: "scrub" };
+      edScrubTo(p.x);
+      return;
+    }
+    const wx = p.x + ED.camX, wy = p.y;
+    const hit = edHitTest(wx, wy);
+    if (hit >= 0) {                                  // grab an existing item
+      ED.sel = hit;
+      const it = ED.lvl.items[hit];
+      ED.drag = { type: "item", dx: wx - it.x, dcy: it.kind === "gate" ? wy - it.center : 0 };
+      showProps();
+    } else if (ED.tool !== "select") {               // place a new one and keep dragging it
+      placeItem(wx, wy);
+      const it = ED.lvl.items[ED.sel];
+      ED.drag = { type: "item", dx: wx - it.x, dcy: it.kind === "gate" ? wy - it.center : 0 };
+    } else {                                         // pan (or click empty = deselect)
+      ED.drag = { type: "pan", px: p.x, cam0: ED.camX, moved: false };
+    }
+  }
+
+  function edPointerMove(e) {
+    const p = toCanvas(e);
+    ED.hover = p;
+    const d = ED.drag;
+    if (!d) return;
+    if (d.type === "scrub") return edScrubTo(p.x);
+    if (d.type === "pan") {
+      if (Math.abs(p.x - d.px) > 3) d.moved = true;
+      ED.camX = clamp(d.cam0 - (p.x - d.px), 0, edMaxCam());
+      return;
+    }
+    const it = ED.lvl.items[ED.sel];
+    if (!it) return;
+    const nx = clampItemX(snap10(p.x + ED.camX - d.dx), it.w);
+    if (nx !== it.x) { it.x = nx; edChanged(); }
+    if (it.kind === "gate") {
+      const nc = Math.round(clamp(p.y - d.dcy, 100, 440));
+      if (nc !== it.center) { it.center = nc; edChanged(); }
+    }
+  }
+
+  function edPointerUp() {
+    const d = ED.drag;
+    ED.drag = null;
+    if (d && d.type === "pan" && !d.moved) { ED.sel = -1; hideProps(); }
+  }
+
+  function edScrubTo(px) {
+    const total = ED.lvl.length + 300;
+    const frac = clamp((px - ED_SCRUB.pad) / (W - ED_SCRUB.pad * 2), 0, 1);
+    ED.camX = clamp(frac * total - W / 2, 0, edMaxCam());
+  }
+
+  function edKeyDown(e) {
+    if (e.code === "Delete" || e.code === "Backspace") { e.preventDefault(); deleteSelected(); }
+    else if (e.code === "Escape") {
+      if (ED.sel >= 0) { ED.sel = -1; hideProps(); }
+      else closeEditor();
+    }
+    else if (e.code === "ArrowLeft") ED.camX = clamp(ED.camX - 200, 0, edMaxCam());
+    else if (e.code === "ArrowRight") ED.camX = clamp(ED.camX + 200, 0, edMaxCam());
+  }
+
+  // --- editor rendering ---
+  function drawEditor() {
+    const camX = ED.camX, lvl = ED.lvl;
+    drawBackground(camX);
+
+    // floor & ceiling edges
+    ctx.fillStyle = "rgba(70,230,255,0.18)";
+    ctx.fillRect(0, 0, W, 2);
+    ctx.fillRect(0, H - 2, W, 2);
+
+    // world grid (every 100px, labels every 500)
+    for (let gx = Math.ceil(camX / 100) * 100; gx < camX + W; gx += 100) {
+      const big = gx % 500 === 0;
+      ctx.fillStyle = big ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.045)";
+      ctx.fillRect(gx - camX, 0, 1, H);
+      if (big && gx > 0) {
+        ctx.fillStyle = "rgba(136,147,184,0.8)";
+        ctx.font = "10px system-ui, sans-serif";
+        ctx.fillText(String(gx), gx - camX + 4, H - 28);
+      }
+    }
+
+    // start marker: a ghost of your ship at the spawn point
+    const sx = 120 - camX;
+    if (sx > -40 && sx < W + 40) {
+      ctx.globalAlpha = 0.55;
+      ctx.save();
+      ctx.translate(sx, H / 2);
+      paintShip(ctx, SKINS[state.skin] || SKINS[0], false, globalTime);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "rgba(70,230,255,0.75)";
+      ctx.font = "bold 11px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("START", sx, H / 2 - 26);
+      ctx.textAlign = "left";
+    }
+
+    drawFinish(lvl, camX);
+
+    // obstacles — animated exactly as they'll move in play
+    if (!ED.built) ED.built = buildCustomLevel(lvl).obstacles;
+    drawObstacles(ED.built, camX, globalTime);
+
+    // ghost preview of the item about to be placed
+    if (ED.tool !== "select" && ED.hover && !ED.drag && ED.hover.y < ED_SCRUB.y - 6) {
+      const wx = ED.hover.x + camX;
+      if (edHitTest(wx, ED.hover.y) < 0) {
+        ctx.globalAlpha = 0.4;
+        drawObstacles(expandItem(makeItem(ED.tool, wx, ED.hover.y), CUSTOM_SPEED), camX, globalTime);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // selection outline
+    const sel = lvl.items[ED.sel];
+    if (sel) {
+      const b = itemBounds(sel);
+      const ry = Math.max(2, b.y - 4);
+      const rh = Math.min(H - 2, b.y + b.h + 4) - ry;
+      ctx.setLineDash([7, 5]);
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = "rgba(70,230,255,0.95)";
+      ctx.shadowColor = "rgba(70,230,255,0.5)";
+      ctx.shadowBlur = 8;
+      ctx.strokeRect(b.x - camX - 4, ry, b.w + 8, rh);
+      ctx.shadowBlur = 0;
+      ctx.setLineDash([]);
+    }
+
+    // bottom scrollbar
+    const total = lvl.length + 300;
+    const tw = W - ED_SCRUB.pad * 2;
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    roundRect(ED_SCRUB.pad, ED_SCRUB.y, tw, 6, 3); ctx.fill();
+    ctx.fillStyle = "rgba(70,230,255,0.7)";
+    roundRect(ED_SCRUB.pad + (camX / total) * tw, ED_SCRUB.y, Math.max(26, (W / total) * tw), 6, 3); ctx.fill();
+  }
+
+  // --- editor UI wiring ---
+  edUI.tools.forEach((b) => b.addEventListener("click", () => { ac(); setTool(b.dataset.tool); }));
+  edUI.name.addEventListener("input", () => {
+    if (!ED.lvl) return;
+    ED.lvl.name = edUI.name.value;
+    edChanged();
+  });
+  edUI.name.addEventListener("blur", () => {
+    if (!ED.lvl) return;
+    ED.lvl.name = edUI.name.value.trim() || "Untitled";
+    edUI.name.value = ED.lvl.name;
+    edChanged();
+  });
+  edUI.length.addEventListener("change", () => {
+    if (!ED.lvl) return;
+    let v = parseInt(edUI.length.value, 10);
+    if (isNaN(v)) v = ED.lvl.length;
+    v = Math.round(clamp(v, ED_MIN_LEN, ED_MAX_LEN) / 100) * 100;
+    edUI.length.value = v;
+    ED.lvl.length = v;
+    ED.camX = clamp(ED.camX, 0, edMaxCam());
+    edChanged();
+  });
+  edUI.back.addEventListener("click", () => { ac(); closeEditor(); });
+  edUI.test.addEventListener("click", () => {
+    ac();
+    flushSave();
+    state.customSrc = ED.lvl;
+    startCustom("editor");
+  });
+  edUI.del.addEventListener("click", () => deleteSelected());
+  for (const r of ED_ROWS) {
+    r.sld.addEventListener("input", () => {
+      const it = ED.lvl && ED.lvl.items[ED.sel];
+      if (!it || !r.kinds[it.kind]) return;
+      it[r.prop] = parseFloat(r.sld.value);
+      r.val.textContent = r.fmt(it[r.prop]);
+      rememberSizes(it);
+      edChanged();
+    });
+  }
+
   // ----- Input -----------------------------------------------------------
   window.addEventListener("keydown", (e) => {
+    const tgt = e.target;
+    if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA")) return; // typing in editor fields
+    if (state.scene === "editor") { edKeyDown(e); return; }
     if (e.code === "Space") {
       e.preventDefault();
       ac();
       if (state.scene === "play") state.held = true;
-      else if (state.scene === "crash") startLevel(state.levelIndex); // respawn instantly
+      else if (state.scene === "crash") restartRun(); // respawn instantly
       else if (state.scene === "complete" || state.scene === "win" || state.scene === "flyover") {
         advance();
         if (state.scene === "play") state.held = true; // carry the hold into the next attempt
@@ -1429,23 +1998,29 @@
     if (e.code === "KeyR") {
       if (state.scene === "play" || state.scene === "crash" || state.scene === "paused" ||
           state.scene === "complete" || state.scene === "flyover") {
-        if (state.mode === "fly") startFly(); else startLevel(state.levelIndex);
+        restartRun();
       }
     } else if (e.code === "Escape" || e.code === "KeyP") {
       if (state.scene === "play") pauseGame();
       else if (state.scene === "paused") resumeGame();
       else if (e.code === "Escape") {
-        if (state.scene === "menu" || state.scene === "skins") goHome();
+        if (state.scene === "menu" || state.scene === "skins" || state.scene === "custommenu") goHome();
         else if (state.scene === "complete" || state.scene === "win" ||
-                 state.scene === "crash" || state.scene === "flyover") goMenu();
+                 state.scene === "crash" || state.scene === "flyover") exitRun();
       }
     } else if (e.code === "KeyM") {
       muted = !muted;
+      MUSIC.setMuted(muted);
     }
   });
 
   window.addEventListener("keyup", (e) => {
     if (e.code === "Space" && state.scene === "play") state.held = false;
+  });
+
+  // auto-pause a hidden tab: rAF freezes the game, so the music must not play on
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && state.scene === "play") pauseGame();
   });
 
   // map a pointer event to logical canvas coordinates (canvas is CSS-scaled)
@@ -1458,6 +2033,10 @@
   canvas.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     ac();
+    if (state.scene === "editor") {
+      edPointerDown(e);
+      return;
+    }
     if (state.scene === "play") {
       const p = toCanvas(e);
       if (p.x >= PAUSE_BTN.x - 6 && p.x <= PAUSE_BTN.x + PAUSE_BTN.w + 6 &&
@@ -1467,19 +2046,29 @@
       }
       state.held = true;
     } else if (state.scene === "crash") {
-      startLevel(state.levelIndex); // tap to respawn instantly
+      restartRun(); // tap to respawn instantly
     }
   });
-  const releaseHold = () => { if (state.scene === "play") state.held = false; };
+  canvas.addEventListener("pointermove", (e) => { if (state.scene === "editor") edPointerMove(e); });
+  const releaseHold = () => {
+    if (state.scene === "play") state.held = false;
+    if (state.scene === "editor") edPointerUp();
+  };
   canvas.addEventListener("pointerup", releaseHold);
   canvas.addEventListener("pointercancel", releaseHold);
-  canvas.addEventListener("pointerleave", releaseHold);
+  canvas.addEventListener("pointerleave", () => { ED.hover = null; releaseHold(); });
+  canvas.addEventListener("wheel", (e) => {
+    if (state.scene !== "editor") return;
+    e.preventDefault();
+    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    ED.camX = clamp(ED.camX + d, 0, edMaxCam());
+  }, { passive: false });
 
   // overlay buttons
   primaryBtn.addEventListener("click", () => advance());
-  menuBtn.addEventListener("click", () => goMenu());
+  menuBtn.addEventListener("click", () => exitRun());
   resumeBtn.addEventListener("click", () => resumeGame());
-  exitBtn.addEventListener("click", () => goMenu());
+  exitBtn.addEventListener("click", () => exitRun());
   // tap the backdrop (not a button) to advance / resume — nice on mobile
   messageEl.addEventListener("click", (e) => { if (e.target === messageEl) advance(); });
   pauseEl.addEventListener("click", (e) => { if (e.target === pauseEl) resumeGame(); });
@@ -1492,6 +2081,8 @@
   playBtn.addEventListener("click", () => { ac(); goMenu(); });
   flyBtn.addEventListener("click", () => { ac(); startFly(); });
   skinBtn.addEventListener("click", () => { ac(); goSkins(); });
+  createBtn.addEventListener("click", () => { ac(); goCustomMenu(); });
+  backFromCustom.addEventListener("click", () => goHome());
   chestBtn.addEventListener("click", () => { ac(); openChest(); });
   backFromLevels.addEventListener("click", () => goHome());
   backFromSkins.addEventListener("click", () => goHome());
@@ -1507,7 +2098,7 @@
     else if (state.scene === "crash") {
       state.crashTimer += dt;
       updateParticles(dt);
-      if (state.crashTimer > 0.5) startLevel(state.levelIndex); // auto-respawn (Geometry Dash style)
+      if (state.crashTimer > 0.5) restartRun(); // auto-respawn (Geometry Dash style)
     } else updateParticles(dt);
 
     // animate the level-clear coin total counting up

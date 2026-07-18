@@ -19,6 +19,16 @@ Fly the ship. Dodge the spikes. Reach the end.
 
 Clearing levels earns coins 🪙 — spend them on new ships, and don't miss the daily chest.
 
+Every level plays its own synthesized beat (no audio files — it's all WebAudio), ramping from bright and friendly to dark and driving as the levels get harder.
+
+## Level creator
+
+Hit **✏️ Create** on the home screen to build your own levels. Name your
+level, set its length, and click to place any spike in the game — floor and
+ceiling spikes, moving launchers and fallers, and sliding gates — then resize
+them with the sliders. Everything autosaves, **▶ Test** flies it instantly,
+and your levels live on the My Levels screen.
+
 ## Run it locally
 
 No build step, no dependencies — it's vanilla HTML5 Canvas.
@@ -46,7 +56,9 @@ processing.
 index.html     Markup for the game + all menu/overlay screens
 css/style.css  All styling
 js/levels.js   Level definitions
+js/music.js    Procedural per-level music (WebAudio beats, no audio files)
 js/game.js     Game engine (physics, rendering, input, saves)
 ```
 
-Progress (unlocked levels, coins, owned ships) is saved in `localStorage`.
+Progress (unlocked levels, coins, owned ships) and your created levels are
+saved in `localStorage`.
