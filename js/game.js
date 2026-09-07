@@ -29,6 +29,27 @@
   const CHEST_KEY = "shipdash.chest.v1"; // date string of last daily-chest claim
   const CUSTOM_KEY = "shipdash.custom.v1"; // user-created levels (level creator)
   const CUSTOM_SPEED = 210;                // scroll speed for all custom levels
+  const SETTINGS_KEY = "shipdash.settings.v1"; // { name, showBar, showPct }
+  const PACKS_KEY = "shipdash.packs.v1";   // per-pack unlock progress (temples, map)
+  const SHARED_KEY = "shipdash.shared.v1"; // levels added from share codes
+  const RACE_KEY = "shipdash.races.v1";    // { wins, losses }
+  const LEVELCOINS_KEY = "shipdash.levelcoins.v1"; // built-in level coins found ("packId:index")
+  const COIN_R = 12;                       // pickup radius of a level coin
+  const COIN_REWARD = 15;                  // coins for finding a level's hidden coin
+  const DIFFS = window.DIFFS || [];
+  const DEFAULT_SPIKE = "#ff6b81", DEFAULT_BG = "#0c1430";
+  const TRIGGER_TYPES = ["shake", "pulse", "speed", "particles", "color", "bgcolor", "background", "fade", "stop"];
+  const TRIGGER_INFO = {
+    shake:      { icon: "💥", col: "#ffd166", name: "SHAKE" },
+    pulse:      { icon: "💓", col: "#ff5d8f", name: "PULSE" },
+    speed:      { icon: "⚡", col: "#46e6ff", name: "SPEED" },
+    particles:  { icon: "✨", col: "#ffffff", name: "PARTICLES" },
+    color:      { icon: "🔺", col: "#ff6b81", name: "SPIKE COLOR" },
+    bgcolor:    { icon: "🎨", col: "#5b8cff", name: "BG COLOR" },
+    background: { icon: "🌌", col: "#b06bff", name: "BACKGROUND" },
+    fade:       { icon: "🌈", col: "#9cff57", name: "FADE" },
+    stop:       { icon: "⏹", col: "#8893b8", name: "STOP" },
+  };
   // Straight Fly: endless tunnel that narrows from FLY_GAP_MAX down toward FLY_GAP_MIN.
   const FLY_SPEED = 190;
   const FLY_GAP_MAX = 380, FLY_GAP_MIN = 56, FLY_GAP_K = 2470;
@@ -44,6 +65,106 @@
   function storeDel(k) { try { if (LS) LS.removeItem(k); } catch (e) {} }
 
   const LEVELS = window.LEVELS;
+  const TEMPLES = window.TEMPLES || [];
+  const MAP = window.MAP || [];
+
+  // ----- Level packs -----------------------------------------------------
+  // A pack is an ordered list of levels with its own unlock progress:
+  // the main 20 levels, each temple, and each map trail.
+  const MAIN_PACK = { id: "main", kind: "main", title: "SELECT LEVEL", levels: LEVELS };
+  const TEMPLE_PACKS = TEMPLES.map((t) => ({ id: "temple." + t.id, kind: "temple", title: t.name.toUpperCase(), sub: t.desc, levels: t.levels, temple: t }));
+  const MAP_PACKS = MAP.map((m) => ({ id: "map." + m.diff, kind: "map", title: "MAP", levels: m.levels, trail: m }));
+  const ALL_PACKS = [MAIN_PACK].concat(TEMPLE_PACKS, MAP_PACKS);
+  function packUnlocked(pack) {
+    if (pack.kind === "main") return state.unlocked;
+    const v = state.packProg[pack.id] | 0;
+    return v;
+  }
+  function setPackUnlocked(pack, v) {
+    if (pack.kind === "main") return saveUnlocked(v);
+    state.packProg[pack.id] = Math.max(packUnlocked(pack), v);
+    savePackProg();
+  }
+  // music: temple/map levels borrow the main soundtrack, picked by difficulty
+  const DIFF_TRACK = [2, 5, 8, 11, 14, 16, 18, 19];
+
+  // ----- Hidden coins ----------------------------------------------------
+  // Every built-in level hides ONE coin somewhere in a gap. It's placed
+  // automatically (deterministic per level) so it's always reachable: we
+  // sample the free gap at a few spots and tuck the coin near a wall.
+  function coinKey(pack, i) { return pack.id + ":" + i; }
+  function levelCoinFound(pack, i) { return state.levelCoins.has(coinKey(pack, i)); }
+  // free gap (ceiling tip .. floor tip) at world x. t defaults to when the ship
+  // gets there; `half` is the x window to consider (the race bot looks wider).
+  function freeGapAt(lvl, x, t, half) {
+    if (t == null) t = (x - 120) / lvl.speed;
+    half = half || 24;
+    let top = CEIL, bot = FLOOR;
+    for (const s of lvl.obstacles) {
+      if (s.x + s.w < x - half || s.x > x + half) continue;
+      const apex = spikeTri(s, t)[5];
+      if (s.dir === "top" || s.dir === "falling" || s.dir === "gateTop") top = Math.max(top, apex);
+      else bot = Math.min(bot, apex);
+    }
+    return { top, bot };
+  }
+  function levelCoins(lvl) {
+    if (lvl.coins) return lvl.coins;
+    let h = 7;
+    for (const ch of lvl.name) h = (h * 31 + ch.charCodeAt(0)) | 0;
+    const fracs = [0.62, 0.38, 0.5, 0.74, 0.28];
+    let best = null;
+    for (let k = 0; k < fracs.length && !best; k++) {
+      const f = fracs[(Math.abs(h) + k) % fracs.length];
+      for (let dx = 0; dx <= 400 && !best; dx += 40) {
+        const x = Math.round(lvl.length * f + dx);
+        const g = freeGapAt(lvl, x);
+        if (g.bot - g.top >= 110 && x < lvl.length - 200) {
+          const side = ((h >> 3) & 1) ? 1 : -1;
+          const y = Math.round((g.top + g.bot) / 2 + side * Math.max(0, (g.bot - g.top) / 2 - 42));
+          best = { x, y };
+        }
+      }
+    }
+    lvl.coins = [best || { x: Math.round(lvl.length * 0.5), y: H / 2 }];
+    return lvl.coins;
+  }
+  // SECRET coin: not the gold 🪙 currency — a spinning cyan/violet disc with a
+  // star, orbiting sparkles, and a violet glow so it reads as something special.
+  function drawCoin(x, y, t, ghost) {
+    const w = 11 * Math.abs(Math.cos(t * 4)) + 2;
+    ctx.save();
+    ctx.globalAlpha = ghost ? 0.28 : 1;
+    ctx.translate(x, y + Math.sin(t * 3) * 3);
+    if (!ghost) { ctx.shadowColor = "rgba(176,107,255,0.9)"; ctx.shadowBlur = 16; }
+    const g = ctx.createLinearGradient(-w, -12, w, 12);
+    g.addColorStop(0, "#7af5ff"); g.addColorStop(0.5, "#b06bff"); g.addColorStop(1, "#ff4bd8");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(0, 0, w, 12, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(0, 0, w, 12, 0, 0, Math.PI * 2); ctx.stroke();
+    if (w > 4) {                       // white star on the face
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 ? 2.4 : 6, a = -Math.PI / 2 + i * Math.PI / 5;
+        ctx.lineTo(Math.cos(a) * r * (w / 13), Math.sin(a) * r);
+      }
+      ctx.closePath(); ctx.fill();
+    }
+    if (!ghost) {                      // two orbiting sparkles
+      ctx.fillStyle = "#e6f7ff";
+      for (let k = 0; k < 2; k++) {
+        const a = t * 2.5 + k * Math.PI, sx = Math.cos(a) * 19, sy = Math.sin(a) * 8;
+        ctx.beginPath(); ctx.arc(sx, sy, 1.8, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+  function runCoinsFound() {   // coins in this run that count (not already banked)
+    return state.coinsGot.length;
+  }
 
   // ----- Canvas ----------------------------------------------------------
   const canvas = document.getElementById("game");
@@ -90,6 +211,11 @@
   const backFromCustom = document.getElementById("backFromCustom");
   const editorEl = document.getElementById("editor");
   const PAUSE_BTN = { x: W - 46, y: 10, w: 34, h: 34 }; // on-canvas pause button (top-right)
+  const $ = (id) => document.getElementById(id);
+  const menuTitle = $("menuTitle"), menuSub = $("menuSub");
+  const plusBtn = $("plusBtn"), plusMenu = $("plusMenu");
+  const settingsEl = $("settings"), templesEl = $("temples"), mapEl = $("map"), searchEl = $("search"), raceEl = $("race");
+  const modeRow = $("modeRow"), modeHint = $("modeHint"), noclipBtn = $("noclipBtn"), practiceBtn = $("practiceBtn");
 
   // ----- State -----------------------------------------------------------
   const state = {
@@ -117,6 +243,19 @@
     particles: [],
     primaryAction: null,
     coinAnim: null,           // active level-clear coin count-up
+    pack: null,               // level pack being played (main levels, a temple, a map trail)
+    packProg: loadPackProg(), // { packId: levels unlocked }
+    settings: loadSettings(), // { name, showBar, showPct }
+    shared: loadShared(),     // levels added from share codes
+    raceRec: loadRaceRec(),   // { wins, losses }
+    race: null,               // active race (see startRace)
+    modes: { noclip: false, practice: false }, // assist modes (pause menu); never count as a real clear
+    assisted: false,          // any assist mode was on at some point during this run
+    checkpoint: null,         // practice mode: last respawn point
+    cpTimer: 0,               // practice mode: seconds since the last auto checkpoint
+    levelCoins: loadLevelCoins(), // Set of built-in level coins already found
+    coinsGot: [],             // coins picked up in the current run (indices)
+    fx: null,                 // active decoration-trigger effects (see defaultFx)
   };
 
   let muted = false;
@@ -184,6 +323,30 @@
     } catch (e) { return []; }
   }
   function saveCustomLevels() { storeSet(CUSTOM_KEY, JSON.stringify(state.customLevels)); }
+  function loadSettings() {
+    const d = { name: "", showBar: true, showPct: false };
+    try { return Object.assign(d, JSON.parse(storeGet(SETTINGS_KEY) || "{}")); } catch (e) { return d; }
+  }
+  function saveSettings() { storeSet(SETTINGS_KEY, JSON.stringify(state.settings)); }
+  function loadPackProg() {
+    try { const o = JSON.parse(storeGet(PACKS_KEY) || "{}"); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; }
+  }
+  function savePackProg() { storeSet(PACKS_KEY, JSON.stringify(state.packProg)); }
+  function loadShared() {
+    try {
+      const a = JSON.parse(storeGet(SHARED_KEY) || "[]");
+      return Array.isArray(a) ? a.filter((l) => l && typeof l.name === "string" && Array.isArray(l.items)) : [];
+    } catch (e) { return []; }
+  }
+  function saveShared() { storeSet(SHARED_KEY, JSON.stringify(state.shared)); }
+  function loadRaceRec() {
+    try { return Object.assign({ wins: 0, losses: 0 }, JSON.parse(storeGet(RACE_KEY) || "{}")); } catch (e) { return { wins: 0, losses: 0 }; }
+  }
+  function saveRaceRec() { storeSet(RACE_KEY, JSON.stringify(state.raceRec)); }
+  function loadLevelCoins() {
+    try { const a = JSON.parse(storeGet(LEVELCOINS_KEY) || "[]"); return new Set(Array.isArray(a) ? a : []); } catch (e) { return new Set(); }
+  }
+  function saveLevelCoins() { storeSet(LEVELCOINS_KEY, JSON.stringify([...state.levelCoins])); }
   function isOwned(i) { return !!SKINS[i] && (SKINS[i].cost === 0 || state.owned.has(i)); }
   function updateCoinDisplays() {
     document.querySelectorAll(".coin-val").forEach((e) => { e.textContent = state.coins; });
@@ -670,6 +833,7 @@
   }
   function sfxComplete() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.09, 0.2, "triangle", 0.16)); }
   function sfxWin() { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, i * 0.1, 0.32, "triangle", 0.18)); }
+  function sfxCoin() { tone(1319, 0, 0.07, "square", 0.12); tone(1760, 0.07, 0.16, "square", 0.12); }
   function sfxCrash() {
     tone(170, 0, 0.18, "sawtooth", 0.22);
     tone(80, 0.02, 0.34, "square", 0.18);
@@ -750,6 +914,12 @@
     pauseEl.classList.add("hidden");
     customEl.classList.add("hidden");
     editorEl.classList.add("hidden");
+    settingsEl.classList.add("hidden");
+    templesEl.classList.add("hidden");
+    mapEl.classList.add("hidden");
+    searchEl.classList.add("hidden");
+    raceEl.classList.add("hidden");
+    plusMenu.classList.add("hidden");
     state.coinAnim = null;
   }
 
@@ -765,17 +935,70 @@
     state.crashTimer = 0;
     state.trail = [];
     state.particles = [];
+    state.fx = defaultFx();
+    state.coinsGot = [];
+    state.checkpoint = null;
+    state.cpTimer = 0;
+    state.assisted = assistActive();
+    if (state.race) resetRaceBot();
     hideAllOverlays();
     blurActive();
-    // every run gets its beat, restarted from the top (Geometry Dash style)
+    playRunMusic();
+  }
+  // every run gets its beat, restarted from the top (Geometry Dash style)
+  function playRunMusic() {
     if (state.mode === "fly") MUSIC.playFly();
     else if (state.custom) MUSIC.playCustom(state.customSrc && state.customSrc.id);
+    else if (state.pack && state.pack.kind !== "main") MUSIC.playLevel(DIFF_TRACK[currentLevel().diff | 0] || 0);
     else MUSIC.playLevel(state.levelIndex);
   }
 
-  function startLevel(i) {
+  // ----- Assist modes: Noclip & Practice (pause menu) --------------------
+  // Noclip flies through spikes; Practice respawns at checkpoints (auto every
+  // few seconds, or press C). Neither mode is available in Straight Fly or
+  // Races, and a run touched by either mode never counts as a real clear.
+  function assistAllowed() { return state.mode === "level" && !state.race; }
+  function assistActive() { return assistAllowed() && (state.modes.noclip || state.modes.practice); }
+  function toggleMode(which) {
+    state.modes[which] = !state.modes[which];
+    if (state.modes[which]) state.assisted = true;      // the current run no longer counts
+    if (which === "practice" && !state.modes.practice) state.checkpoint = null;
+    renderModeButtons();
+    tone(state.modes[which] ? 880 : 440, 0, 0.08, "triangle", 0.1);
+  }
+  function renderModeButtons() {
+    const on = assistAllowed();
+    modeRow.classList.toggle("hidden", !on);
+    modeHint.classList.toggle("hidden", !on);
+    noclipBtn.textContent = "👻 Noclip: " + (state.modes.noclip ? "ON" : "OFF");
+    practiceBtn.textContent = "🚩 Practice: " + (state.modes.practice ? "ON" : "OFF");
+    noclipBtn.classList.toggle("mode-on", state.modes.noclip);
+    practiceBtn.classList.toggle("mode-on", state.modes.practice);
+  }
+  function setCheckpoint() {
+    state.checkpoint = { shipX: state.shipX, y: state.y, vy: state.vy, elapsed: state.elapsed,
+      coinsGot: state.coinsGot.slice(), fx: JSON.parse(JSON.stringify(state.fx)) };
+    state.cpTimer = 0;
+  }
+  function respawnAtCheckpoint() {
+    const c = state.checkpoint;
+    state.scene = "play";
+    state.shipX = c.shipX; state.y = c.y; state.vy = c.vy; state.elapsed = c.elapsed;
+    state.coinsGot = c.coinsGot.slice(); state.fx = JSON.parse(JSON.stringify(c.fx));
+    state.camX = Math.max(0, state.shipX - SHIP_SCREEN_X);
+    state.held = false; state.trail = []; state.particles = []; state.crashTimer = 0; state.cpTimer = 0;
+    state.assisted = true;
+    hideAllOverlays();
+    blurActive();
+    playRunMusic();
+  }
+
+  function startLevel(i, pack) {
     state.mode = "level";
     state.custom = state.customSrc = state.customFrom = null;
+    if (pack) state.pack = pack;
+    if (!state.pack) state.pack = MAIN_PACK;
+    if (state.pack.kind !== "race") state.race = null;
     state.levelIndex = i;
     resetRun();
   }
@@ -791,18 +1014,22 @@
   }
 
   function restartRun() {
+    if (assistAllowed() && state.modes.practice && state.checkpoint) return respawnAtCheckpoint();
     if (state.mode === "fly") startFly();
     else if (state.custom) startCustom();
     else startLevel(state.levelIndex);
   }
 
-  function currentLevel() { return state.custom || LEVELS[state.levelIndex]; }
+  function currentLevel() { return state.custom || (state.pack || MAIN_PACK).levels[state.levelIndex]; }
 
   // Leave a run (or its end-of-run message) toward the right screen.
   function exitRun() {
-    if (state.custom && state.customFrom === "editor") backToEditor();
+    if (state.race) { state.race = null; goRace(); }
+    else if (state.custom && state.customFrom === "editor") backToEditor();
+    else if (state.custom && state.customFrom === "search") goSearch();
     else if (state.custom) goCustomMenu();
-    else goMenu();
+    else if (state.pack && state.pack.kind === "map") goMap();
+    else goMenu(state.pack);
   }
 
   // ----- Straight Fly (endless narrowing tunnel) -------------------------
@@ -823,10 +1050,12 @@
   function goHome() {
     state.scene = "home";
     state.held = false;
+    state.race = null;
     hideAllOverlays();
     updateCoinDisplays();
     renderChest();
     homeEl.classList.remove("hidden");
+    plusMenu.classList.add("hidden");
     blurActive();
   }
 
@@ -852,12 +1081,14 @@
     setupReward(amount, state.coins);
   }
 
-  function goMenu() {            // level select
+  function goMenu(pack) {        // level select (main levels or a temple)
     state.scene = "menu";
     state.held = false;
+    state.race = null;
+    state.pack = (pack && pack.kind !== "race") ? pack : MAIN_PACK;
     MUSIC.stop();
     hideAllOverlays();
-    renderMenu();
+    renderMenu(state.pack);
     menuEl.classList.remove("hidden");
     blurActive();
   }
@@ -876,6 +1107,7 @@
     state.scene = "paused";
     state.held = false;
     MUSIC.pause();
+    renderModeButtons();
     pauseEl.classList.remove("hidden");
     blurActive();
   }
@@ -908,46 +1140,109 @@
       setupReward(0, 0); // no coins in this mode
       return;
     }
+    if (state.race) {                  // races: no respawn — the rival takes it
+      state.scene = "raceover";
+      const r = state.race;
+      if (r.botDead) {
+        showMessage("crash", "NO WINNER", `Both you and ${r.rival.name} crashed. Rematch?`, "Rematch ↺", restartRun, false, "Races");
+      } else {
+        state.raceRec.losses++; saveRaceRec();
+        showMessage("crash", `${r.rival.name.toUpperCase()} WINS`, `You crashed at ${Math.round(r.pct * 100)}%. ${r.rival.name} takes the race.`, "Rematch ↺", restartRun, false, "Races");
+      }
+      setupReward(0, 0);
+      return;
+    }
     state.scene = "crash";             // levels: auto-respawn (handled in the loop)
     state.crashTimer = 0;
   }
 
   function complete() {
     MUSIC.stop(); // silence for the clear jingle
+    // Noclip / Practice runs: no unlock, no coins, no "beaten" — just a look at the level
+    if (state.assisted && assistAllowed()) {
+      state.scene = "complete";
+      sfxComplete();
+      const used = state.modes.noclip && state.modes.practice ? "Noclip and Practice" : state.modes.noclip ? "Noclip" : state.modes.practice ? "Practice" : "an assist mode";
+      showMessage("complete", "PRACTICE CLEAR", `You reached the end using ${used}, so it doesn't count. Turn it off in the pause menu to beat the level for real.`,
+        "Play Again ↺", () => { state.checkpoint = null; restartRun(); }, false, "Back");
+      setupReward(0, state.coins);
+      return;
+    }
     // custom levels: no coins or unlocks, and exits lead back to where you came from
     if (state.custom) {
       state.scene = "complete";
       sfxComplete();
+      // beating your own level (in a test or from the list) qualifies it for posting
+      if (state.customSrc && state.customLevels.includes(state.customSrc) && !state.customSrc.beaten) {
+        state.customSrc.beaten = true;
+        saveCustomLevels();
+      }
+      const nc = levelCoins(state.custom).length, gc = state.coinsGot.length;
+      const coinNote = nc ? ` 💠 ${gc}/${nc} secret coin${nc === 1 ? "" : "s"} found.` : "";
       if (state.customFrom === "editor") {
-        showMessage("complete", "LEVEL CLEAR!", "Your level works. Back to building!",
+        showMessage("complete", "LEVEL CLEAR!", "Your level works." + coinNote + " Back to building!",
           "Back to Editor ✏️", backToEditor, true);
+      } else if (state.customFrom === "search") {
+        showMessage("complete", "LEVEL CLEAR!", `You beat “${state.custom.name}” by ${state.customSrc.author || "?"}!` + coinNote,
+          "Play Again ↺", () => startCustom(), false, "Search");
       } else {
-        showMessage("complete", "LEVEL CLEAR!", `You beat “${state.custom.name}”. Nice flying!`,
+        showMessage("complete", "LEVEL CLEAR!", `You beat “${state.custom.name}”. Nice flying!` + coinNote,
           "Play Again ↺", () => startCustom(), false, "My Levels");
       }
       setupReward(0, state.coins);
       return;
     }
+    // races: finishing = winning (the rival is always a hair behind)
+    if (state.race) {
+      const r = state.race;
+      state.scene = "win";
+      sfxWin();
+      state.raceRec.wins++; saveRaceRec();
+      const reward = 30;
+      addCoins(reward);
+      showMessage("win", "YOU WIN THE RACE!", r.botDead ? `${r.rival.name} crashed and you finished. Champion!` : `You beat ${r.rival.name} to the finish!`,
+        "New Race 🏁", () => { rollRace(); startRace(); }, false, "Races");
+      setupReward(reward, state.coins);
+      return;
+    }
+    const pack = state.pack || MAIN_PACK;
     const i = state.levelIndex;
-    const isLast = i >= LEVELS.length - 1;
+    const isLast = i >= pack.levels.length - 1;
     // coins are awarded only on the FIRST clear (unlocked only advances then)
-    const firstClear = (i + 1) > state.unlocked;
+    const firstClear = (i + 1) > packUnlocked(pack);
     let reward = 0;
     if (firstClear) {
-      reward = LEVEL_REWARD[i] != null ? LEVEL_REWARD[i] : DEFAULT_REWARD;
-      addCoins(reward);
+      if (pack.kind === "main") reward = LEVEL_REWARD[i] != null ? LEVEL_REWARD[i] : DEFAULT_REWARD;
+      else reward = 20 + (pack.levels[i].diff | 0) * 10;
     }
-    saveUnlocked(i + 1);
+    // the hidden coin banks only if you also finish the level (Geometry Dash style)
+    let coinNote = "";
+    if (state.coinsGot.length && !levelCoinFound(pack, i)) {
+      state.levelCoins.add(coinKey(pack, i));
+      saveLevelCoins();
+      reward += COIN_REWARD;
+      coinNote = ` 💠 Secret coin found! +${COIN_REWARD} 🪙`;
+    }
+    if (reward) addCoins(reward);
+    setPackUnlocked(pack, i + 1);
     if (isLast) {
       state.scene = "win";
       sfxWin();
-      showMessage("win", "YOU WIN!", "You cleared every level. Nice flying, pilot!",
-        "Play Again ↺", () => startLevel(i));
+      if (pack.kind === "main") {
+        showMessage("win", "YOU WIN!", "You cleared every level. Nice flying, pilot!" + coinNote,
+          "Play Again ↺", () => startLevel(i));
+      } else if (pack.kind === "temple") {
+        showMessage("win", "TEMPLE CLEARED!", `You conquered the ${pack.temple.name}!` + coinNote,
+          "Play Again ↺", () => startLevel(i), false, "Temples");
+      } else {
+        showMessage("win", "DUNGEON CLEARED!", "You beat the dungeon and finished the trail!" + coinNote,
+          "Play Again ↺", () => startLevel(i), false, "Map");
+      }
     } else {
       state.scene = "complete";
       sfxComplete();
-      showMessage("complete", "LEVEL CLEAR!", "Next level unlocked.",
-        "Next Level →", () => startLevel(i + 1));
+      showMessage("complete", "LEVEL CLEAR!", (pack.kind === "map" && pack.levels[i + 1].dungeon ? "The DUNGEON is open…" : "Next level unlocked.") + coinNote,
+        "Next Level →", () => startLevel(i + 1), false, pack.kind === "main" ? "Level Select" : pack.kind === "temple" ? "Temple" : "Map");
     }
     setupReward(reward, state.coins); // animate the coin count-up
   }
@@ -1019,23 +1314,117 @@
     if (state.y < CEIL + SHIP_R) { state.y = CEIL + SHIP_R; if (state.vy < 0) state.vy = 0; }
     if (state.y > FLOOR - SHIP_R) { state.y = FLOOR - SHIP_R; if (state.vy > 0) state.vy = 0; }
 
-    // horizontal scroll
-    state.shipX += lvl.speed * dt;
+    // horizontal scroll (decoration SPEED triggers scale it)
+    state.shipX += lvl.speed * state.fx.speedMul * dt;
     state.camX = Math.max(0, state.shipX - SHIP_SCREEN_X);
+
+    // decoration triggers fire as the ship passes them
+    const trigs = lvl.triggers || [];
+    while (state.fx.nextTrig < trigs.length && trigs[state.fx.nextTrig].x <= state.shipX) fireTrigger(trigs[state.fx.nextTrig++]);
+    updateFx(dt);
+    if (state.race) updateRace(dt, lvl);
 
     // trail
     state.trail.push({ x: state.shipX, y: state.y });
     if (state.trail.length > 18) state.trail.shift();
 
-    // collision with spikes (only those near the ship)
-    for (const s of lvl.obstacles) {
+    // assist modes
+    const noclip = assistAllowed() && state.modes.noclip;
+    if (assistAllowed() && state.modes.practice) {
+      state.cpTimer += dt;
+      if (state.cpTimer >= 1.5) setCheckpoint();   // auto checkpoint (C also drops one)
+    }
+
+    // collision with spikes (only those near the ship) — Noclip flies straight through
+    if (!noclip) for (const s of lvl.obstacles) {
       if (s.x + s.w < state.shipX - SHIP_R || s.x > state.shipX + SHIP_R) continue;
       if (circleHitsTri(state.shipX, state.y, COLLIDE_R, spikeTri(s, state.elapsed))) { crash(); return; }
+    }
+
+    // secret coins
+    if (!state.race) {
+      const coins = levelCoins(lvl);
+      const banked = !state.custom && levelCoinFound(state.pack || MAIN_PACK, state.levelIndex);
+      if (!banked) {
+        for (let i = 0; i < coins.length; i++) {
+          if (state.coinsGot.includes(i)) continue;
+          const dx = coins[i].x - state.shipX, dy = coins[i].y - state.y;
+          if (dx * dx + dy * dy <= (SHIP_R + COIN_R) * (SHIP_R + COIN_R)) {
+            state.coinsGot.push(i);
+            sfxCoin();
+            for (let k = 0; k < 14; k++) {
+              const a = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 140;
+              state.particles.push({ x: coins[i].x, y: coins[i].y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80, life: 0.5 + Math.random() * 0.4, max: 0.9, col: k % 2 ? "#7af5ff" : "#b06bff", r: 2 + Math.random() * 2 });
+            }
+          }
+        }
+      }
     }
 
     // reached the finish
     if (state.shipX >= lvl.length) complete();
   }
+
+  // ----- Decoration triggers (level creator) -----------------------------
+  // A trigger sits at an x in the level and fires once the ship passes it.
+  function defaultFx() {
+    return { shake: 0, shakeDur: 1, shakeStr: 0, pulse: null, speedMul: 1, particles: null,
+             spikeCol: null, bgCol: null, bgStyle: "stars", fade: null, nextTrig: 0, spawnAcc: 0 };
+  }
+  function fireTrigger(tr) {
+    const fx = state.fx;
+    switch (tr.type) {
+      case "shake": fx.shake = tr.dur; fx.shakeDur = tr.dur; fx.shakeStr = tr.str * 2.2; break;
+      case "pulse": fx.pulse = { col: tr.col, t: 0, dur: tr.dur, str: tr.str }; break;
+      case "speed": fx.speedMul = tr.spd; break;
+      case "particles": fx.particles = { col: tr.col, amt: tr.str }; break;
+      case "color": fx.spikeCol = tr.col; fx.fade = null; break;
+      case "bgcolor": fx.bgCol = tr.col; fx.fade = null; break;
+      case "background": fx.bgStyle = tr.bg; break;
+      case "fade":
+        fx.fade = { t: 0, dur: tr.dur, fromSpike: fx.spikeCol || DEFAULT_SPIKE, toSpike: tr.col, fromBg: fx.bgCol || DEFAULT_BG, toBg: tr.col2 };
+        break;
+      case "stop": { const n = fx.nextTrig; state.fx = defaultFx(); state.fx.nextTrig = n; break; }
+    }
+  }
+  function updateFx(dt) {
+    const fx = state.fx;
+    if (fx.shake > 0) fx.shake -= dt;
+    if (fx.pulse) { fx.pulse.t += dt; if (fx.pulse.t >= fx.pulse.dur) fx.pulse = null; }
+    if (fx.fade) {
+      const f = fx.fade; f.t += dt;
+      const p = Math.min(1, f.t / f.dur);
+      fx.spikeCol = lerpColor(f.fromSpike, f.toSpike, p);
+      fx.bgCol = lerpColor(f.fromBg, f.toBg, p);
+      if (p >= 1) fx.fade = null;
+    }
+    if (fx.particles) {                       // floating mini circles
+      fx.spawnAcc += fx.particles.amt * 4 * dt;
+      while (fx.spawnAcc >= 1) {
+        fx.spawnAcc -= 1;
+        state.particles.push({
+          x: state.camX + Math.random() * (W + 80) - 40, y: H + 10,
+          vx: (Math.random() - 0.5) * 30, vy: -(30 + Math.random() * 70),
+          life: 3 + Math.random() * 3, max: 6, col: fx.particles.col, r: 1.5 + Math.random() * 3.5, float: true,
+        });
+      }
+    }
+  }
+  function hexToRgb(h) {
+    h = String(h || "#000000").replace("#", "");
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h, 16) || 0;
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function rgbToHex(r, g, b) {
+    return "#" + [r, g, b].map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, "0")).join("");
+  }
+  function lerpColor(a, b, p) {
+    const A = hexToRgb(a), B = hexToRgb(b);
+    return rgbToHex(A[0] + (B[0] - A[0]) * p, A[1] + (B[1] - A[1]) * p, A[2] + (B[2] - A[2]) * p);
+  }
+  function shadeHex(h, f) { const c = hexToRgb(h); return rgbToHex(c[0] * f, c[1] * f, c[2] * f); }
+  function rgba(h, a) { const c = hexToRgb(h); return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
 
   function spawnExplosion(x, y) {
     for (let i = 0; i < 34; i++) {
@@ -1054,7 +1443,7 @@
   }
   function updateParticles(dt) {
     for (const p of state.particles) {
-      p.vy += 900 * dt;
+      if (!p.float) p.vy += 900 * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;
@@ -1066,10 +1455,19 @@
   function render() {
     if (state.scene === "editor") { drawEditor(); return; }
     const inGame = state.scene === "play" || state.scene === "crash" ||
-                   state.scene === "paused" || state.scene === "flyover";
+                   state.scene === "paused" || state.scene === "flyover" || state.scene === "raceover";
     const camX = inGame ? state.camX : globalTime * 36; // gentle drift on menu
 
-    drawBackground(camX);
+    // SHAKE trigger: jitter the whole frame while it lasts
+    const fx = state.fx;
+    const shaking = inGame && fx && fx.shake > 0 && state.scene === "play";
+    ctx.save();
+    if (shaking) {
+      const k = fx.shakeStr * (fx.shake / fx.shakeDur);
+      ctx.translate((Math.random() - 0.5) * k, (Math.random() - 0.5) * k);
+    }
+
+    drawBackground(camX, inGame ? fx : null);
 
     if (inGame && state.mode === "fly") {
       drawFlyCorridor(camX);
@@ -1082,9 +1480,22 @@
       const lvl = currentLevel();
       drawSpikes(lvl, camX);
       drawFinish(lvl, camX);
+      if (!state.race) {
+        const banked = !state.custom && levelCoinFound(state.pack || MAIN_PACK, state.levelIndex);
+        levelCoins(lvl).forEach((c, i) => {
+          if (!banked && state.coinsGot.includes(i)) return;
+          if (c.x - camX > -30 && c.x - camX < W + 30) drawCoin(c.x - camX, c.y, globalTime, banked);
+        });
+      }
+      if (state.race) drawRaceBot(camX);
+      if (state.checkpoint && assistAllowed() && state.modes.practice) drawCheckpoint(state.checkpoint, camX);
       drawTrail(camX);
-      if (state.scene !== "crash") drawShip(); // ship is gone (exploded) only on crash
+      if (state.scene !== "crash" && state.scene !== "raceover") drawShip(); // ship is gone (exploded) on crash
       drawParticles(camX);
+      if (fx && fx.pulse) {                   // PULSE trigger: breathe a color over the screen
+        const p = fx.pulse, a = (0.08 + 0.05 * p.str) * (0.5 + 0.5 * Math.sin(p.t * 6)) * Math.min(1, (p.dur - p.t) / 0.5 + 0.2);
+        ctx.fillStyle = rgba(p.col, clamp(a, 0, 0.7)); ctx.fillRect(-20, -20, W + 40, H + 40);
+      }
       drawHUD(lvl);
       drawHint(lvl);
       if (state.scene === "play") drawPauseButton();
@@ -1092,6 +1503,7 @@
     } else {
       drawParticles(camX);
     }
+    ctx.restore();
   }
 
   function drawFlyCorridor(camX) {
@@ -1147,24 +1559,48 @@
     }
   }
 
-  function drawBackground(camX) {
+  function drawBackground(camX, fx) {
+    const bg = fx && fx.bgCol;
     const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, "#0c1430");
-    g.addColorStop(0.55, "#0a0f24");
-    g.addColorStop(1, "#06091a");
+    if (bg) { g.addColorStop(0, bg); g.addColorStop(0.55, shadeHex(bg, 0.8)); g.addColorStop(1, shadeHex(bg, 0.5)); }
+    else { g.addColorStop(0, "#0c1430"); g.addColorStop(0.55, "#0a0f24"); g.addColorStop(1, "#06091a"); }
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(-20, -20, W + 40, H + 40);
 
-    // parallax stars
-    for (const s of stars) {
-      let sx = ((s.x - camX * s.f) % W + W) % W;
-      const tw = 0.55 + 0.45 * Math.sin(globalTime * s.sp + s.tw);
-      ctx.globalAlpha = tw;
-      ctx.fillStyle = "#cfe3ff";
-      ctx.beginPath();
-      ctx.arc(sx, s.y, s.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    const style = (fx && fx.bgStyle) || "stars";
+    if (style === "stars") {
+      for (const s of stars) {              // parallax stars
+        let sx = ((s.x - camX * s.f) % W + W) % W;
+        const tw = 0.55 + 0.45 * Math.sin(globalTime * s.sp + s.tw);
+        ctx.globalAlpha = tw;
+        ctx.fillStyle = "#cfe3ff";
+        ctx.beginPath();
+        ctx.arc(sx, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (style === "grid") {          // scrolling neon grid
+      ctx.globalAlpha = 0.18; ctx.strokeStyle = "#46e6ff"; ctx.lineWidth = 1;
+      const off = (camX * 0.5) % 60;
+      for (let x = -off; x < W; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+      for (let y = 0; y <= H; y += 60) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    } else if (style === "hills") {         // layered rolling hills
+      for (let layer = 0; layer < 3; layer++) {
+        const f = 0.15 + layer * 0.2, base = H - 40 - layer * 70, amp = 40 + layer * 20;
+        ctx.globalAlpha = 0.22 + layer * 0.12; ctx.fillStyle = layer === 2 ? "#1b2a5a" : layer === 1 ? "#142046" : "#0f1838";
+        ctx.beginPath(); ctx.moveTo(0, H);
+        for (let sx = 0; sx <= W; sx += 12) { const wx = camX * f + sx; ctx.lineTo(sx, base - amp * Math.sin(wx / 160) - amp * 0.4 * Math.sin(wx / 53)); }
+        ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+      }
+    } else if (style === "nebula") {        // soft drifting color clouds
+      const cols = ["#b06bff", "#ff5d8f", "#46e6ff", "#ffd166"];
+      for (let i = 0; i < 6; i++) {
+        const wx = ((i * 337 - camX * (0.2 + (i % 3) * 0.1)) % (W + 300) + W + 300) % (W + 300) - 150;
+        const wy = 80 + ((i * 173) % (H - 160)) + Math.sin(globalTime * 0.4 + i) * 20;
+        const rg = ctx.createRadialGradient(wx, wy, 0, wx, wy, 160 + (i % 3) * 40);
+        rg.addColorStop(0, rgba(cols[i % cols.length], 0.22)); rg.addColorStop(1, rgba(cols[i % cols.length], 0));
+        ctx.globalAlpha = 1; ctx.fillStyle = rg; ctx.fillRect(wx - 220, wy - 220, 440, 440);
+      }
+    }                                        // "void": just the gradient
     ctx.globalAlpha = 1;
 
     // faint top/bottom depth bands
@@ -1214,8 +1650,11 @@
         const tip = "#ffc24a", root = "#8a4412";
         if (s.dir === "launching") { g.addColorStop(0, tip); g.addColorStop(1, root); }
         else { g.addColorStop(0, root); g.addColorStop(1, tip); }
-      } else if (s.dir === "bottom") { g.addColorStop(0, "#ff6b81"); g.addColorStop(1, "#7a1f2b"); }
-      else { g.addColorStop(0, "#7a1f2b"); g.addColorStop(1, "#ff6b81"); }
+      } else {
+        const sc = (state.fx && state.fx.spikeCol) || DEFAULT_SPIKE, root = sc === DEFAULT_SPIKE ? "#7a1f2b" : shadeHex(sc, 0.45);
+        if (s.dir === "bottom") { g.addColorStop(0, sc); g.addColorStop(1, root); }
+        else { g.addColorStop(0, root); g.addColorStop(1, sc); }
+      }
 
       ctx.beginPath();
       ctx.moveTo(px[0], px[1]);
@@ -1225,8 +1664,9 @@
       ctx.fillStyle = g;
       ctx.fill();
       ctx.lineWidth = 2;
-      ctx.strokeStyle = gate ? "rgba(210,170,255,0.95)" : piston ? "rgba(255,200,120,0.95)" : "rgba(255,140,160,0.9)";
-      ctx.shadowColor = gate ? "rgba(176,107,255,0.55)" : piston ? "rgba(255,170,70,0.55)" : "rgba(255,84,112,0.6)";
+      const sc = state.fx && state.fx.spikeCol;
+      ctx.strokeStyle = gate ? "rgba(210,170,255,0.95)" : piston ? "rgba(255,200,120,0.95)" : sc ? rgba(lerpColor(sc, "#ffffff", 0.3), 0.9) : "rgba(255,140,160,0.9)";
+      ctx.shadowColor = gate ? "rgba(176,107,255,0.55)" : piston ? "rgba(255,170,70,0.55)" : sc ? rgba(sc, 0.6) : "rgba(255,84,112,0.6)";
       ctx.shadowBlur = 10;
       ctx.stroke();
       ctx.shadowBlur = 0;
@@ -1297,28 +1737,85 @@
     ctx.globalAlpha = 1;
   }
 
+  function drawCheckpoint(c, camX) {
+    const x = c.shipX - camX;
+    if (x < -30 || x > W + 30) return;
+    ctx.save();
+    ctx.strokeStyle = "rgba(176,107,255,0.6)"; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#b06bff";
+    ctx.beginPath(); ctx.moveTo(x, c.y - 26); ctx.lineTo(x + 18, c.y - 19); ctx.lineTo(x, c.y - 12); ctx.closePath(); ctx.fill();
+    ctx.fillRect(x - 1, c.y - 26, 2, 30);
+    ctx.restore();
+  }
+
   function drawHUD(lvl) {
     // progress bar (leaves room for the pause button on the right)
-    const pad = 16, barW = W - pad - 56, barH = 6, y = 12;
+    const pad = 16, barH = 6, y = 12;
+    const barW = W - pad - 56 - (state.settings.showPct ? 54 : 0);
     const prog = Math.max(0, Math.min(1, (state.shipX - 120) / (lvl.length - 120)));
-    ctx.fillStyle = "rgba(255,255,255,0.10)";
-    roundRect(pad, y, barW, barH, 3); ctx.fill();
-    ctx.fillStyle = "#46e6ff";
-    roundRect(pad, y, barW * prog, barH, 3); ctx.fill();
-    // ship marker
-    ctx.fillStyle = "#eafcff";
-    ctx.beginPath();
-    ctx.arc(pad + barW * prog, y + barH / 2, 5, 0, Math.PI * 2);
-    ctx.fill();
+    if (state.settings.showBar) {
+      ctx.fillStyle = "rgba(255,255,255,0.10)";
+      roundRect(pad, y, barW, barH, 3); ctx.fill();
+      ctx.fillStyle = "#46e6ff";
+      roundRect(pad, y, barW * prog, barH, 3); ctx.fill();
+      if (state.race) {                     // rival marker
+        const r = state.race, bp = Math.max(0, Math.min(1, (r.botX - 120) / (lvl.length - 120)));
+        ctx.fillStyle = r.botDead ? "rgba(255,84,112,0.5)" : "#ff5470";
+        ctx.beginPath(); ctx.arc(pad + barW * bp, y + barH / 2, 4, 0, Math.PI * 2); ctx.fill();
+      }
+      // ship marker
+      ctx.fillStyle = "#eafcff";
+      ctx.beginPath();
+      ctx.arc(pad + barW * prog, y + barH / 2, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (state.settings.showPct) {           // percentage readout
+      ctx.fillStyle = "#eafcff";
+      ctx.font = "bold 14px system-ui, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(Math.floor(prog * 100) + "%", W - 60, y + 8);
+      ctx.textAlign = "left";
+    }
 
     // level label
     ctx.fillStyle = "rgba(232,238,252,0.85)";
     ctx.font = "bold 15px system-ui, sans-serif";
     ctx.textAlign = "left";
-    const label = state.custom
-      ? (state.customFrom === "editor" ? "TEST · " : "") + lvl.name
-      : `LEVEL ${state.levelIndex + 1} · ${lvl.name}`;
+    const pack = state.pack || MAIN_PACK;
+    const label = state.race
+      ? `🏁 RACE vs ${state.race.rival.name} · ${lvl.name}`
+      : state.custom
+        ? (state.customFrom === "editor" ? "TEST · " : "") + lvl.name
+        : pack.kind === "temple"
+          ? `${pack.temple.name.toUpperCase()} ${state.levelIndex + 1} · ${lvl.name}`
+          : pack.kind === "map"
+            ? (lvl.dungeon ? "DUNGEON · " : `MAP ${state.levelIndex + 1} · `) + lvl.name
+            : `LEVEL ${state.levelIndex + 1} · ${lvl.name}`;
     ctx.fillText(label, pad, 40);
+    if (assistActive() || (state.assisted && assistAllowed())) {   // assist tags (this run won't count)
+      ctx.font = "bold 12px system-ui, sans-serif";
+      let tx = pad;
+      const tag = (txt, col) => { ctx.fillStyle = col; ctx.fillText(txt, tx, 60); tx += ctx.measureText(txt).width + 12; };
+      if (state.modes.noclip) tag("👻 NOCLIP", "#9cff57");
+      if (state.modes.practice) tag("🚩 PRACTICE" + (state.checkpoint ? "" : " · press C for a checkpoint"), "#b06bff");
+      tag("· won't count", "rgba(232,238,252,0.55)");
+    }
+    if (!state.race && levelCoins(lvl).length) {
+      const banked = !state.custom && levelCoinFound(state.pack || MAIN_PACK, state.levelIndex);
+      const n = levelCoins(lvl).length, got = banked ? n : state.coinsGot.length;
+      ctx.globalAlpha = got ? 1 : 0.35;
+      ctx.fillText((n > 1 ? `${got}/${n} ` : "") + "💠", pad + ctx.measureText(label).width + 12, 40);
+      ctx.globalAlpha = 1;
+    }
+    if (state.race && state.race.toast > 0) {
+      ctx.globalAlpha = Math.min(1, state.race.toast);
+      ctx.textAlign = "center"; ctx.fillStyle = "#ff5470"; ctx.font = "bold 24px system-ui, sans-serif";
+      ctx.shadowColor = "rgba(255,84,112,0.6)"; ctx.shadowBlur = 14;
+      ctx.fillText(`${state.race.rival.name} crashed!`, W / 2, H / 2 - 100);
+      ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.textAlign = "left";
+    }
   }
 
   function drawPauseButton() {
@@ -1372,11 +1869,17 @@
   }
 
   // ----- Menu rendering --------------------------------------------------
-  function renderMenu() {
+  function renderMenu(pack) {
+    pack = pack || MAIN_PACK;
+    menuTitle.textContent = pack.title;
+    menuSub.textContent = pack.sub || "";
+    menuSub.classList.toggle("hidden", !pack.sub);
+    document.getElementById("resetProgress").style.display = pack.kind === "main" ? "" : "none";
     levelSelectEl.innerHTML = "";
-    LEVELS.forEach((lvl, i) => {
-      const locked = i > state.unlocked;
-      const cleared = i < state.unlocked;
+    const unlocked = packUnlocked(pack);
+    pack.levels.forEach((lvl, i) => {
+      const locked = i > unlocked;
+      const cleared = i < unlocked;
       const card = document.createElement("div");
       card.className = "level-card" + (locked ? " locked" : "");
       const badge = cleared
@@ -1385,14 +1888,495 @@
           ? '<span class="badge locked">🔒 LOCKED</span>'
           : '<span class="badge ready">▶ PLAY</span>';
       card.innerHTML =
-        `<div class="num">Level ${i + 1}</div>` +
+        `<div class="num">${pack.kind === "temple" ? (pack.temple.icon + " Level ") : "Level "}${i + 1}</div>` +
         `<div class="name">${lvl.name}</div>` +
         `<div class="desc">${lvl.subtitle}</div>` +
-        badge;
-      if (!locked) card.addEventListener("click", () => { ac(); startLevel(i); });
+        diffBadge(lvl.diff | 0) + badge +
+        `<span class="coin-mark${levelCoinFound(pack, i) ? " got" : ""}" title="${levelCoinFound(pack, i) ? "Secret coin found" : "Secret coin not found yet"}">💠</span>`;
+      if (!locked) card.addEventListener("click", () => { ac(); startLevel(i, pack); });
       levelSelectEl.appendChild(card);
     });
   }
+  const diffBadge = window.diffBadge || (() => "");
+  const diffFace = window.diffFace || (() => "");
+
+  // ----- Settings --------------------------------------------------------
+  const setUI = {
+    tabAccount: $("tabAccount"), tabControls: $("tabControls"),
+    panelAccount: $("panelAccount"), panelControls: $("panelControls"),
+    status: $("accountStatus"), nameBtn: $("nameBtn"), nameForm: $("nameForm"),
+    nameInput: $("nameInput"), nameSubmit: $("nameSubmit"),
+    optBar: $("optBar"), optPct: $("optPct"), back: $("backFromSettings"),
+  };
+  function goSettings(tab) {
+    state.scene = "settings";
+    state.held = false;
+    hideAllOverlays();
+    showSettingsTab(tab || "account");
+    renderSettings();
+    settingsEl.classList.remove("hidden");
+    blurActive();
+  }
+  function showSettingsTab(tab) {
+    const acc = tab === "account";
+    setUI.tabAccount.classList.toggle("active", acc);
+    setUI.tabControls.classList.toggle("active", !acc);
+    setUI.panelAccount.classList.toggle("hidden", !acc);
+    setUI.panelControls.classList.toggle("hidden", acc);
+  }
+  function renderSettings() {
+    const n = state.settings.name;
+    setUI.status.textContent = n ? `Signed in as ${n} · 🔒 names can't be changed` : "No name yet — pick one to post levels and race. Choose carefully: it can't be changed later!";
+    setUI.nameBtn.textContent = "✏️  Name";
+    setUI.nameBtn.classList.toggle("hidden", !!n);   // locked once picked
+    setUI.nameForm.classList.add("hidden");
+    setUI.nameInput.value = n;
+    setUI.optBar.checked = !!state.settings.showBar;
+    setUI.optPct.checked = !!state.settings.showPct;
+  }
+  function submitName() {
+    if (state.settings.name) return;               // locked: a name is picked once
+    const v = setUI.nameInput.value.trim().slice(0, 16);
+    if (!v) { setUI.nameInput.focus(); return; }
+    state.settings.name = v;
+    saveSettings();
+    sfxComplete();
+    renderSettings();
+  }
+  function hasAccount() { return !!state.settings.name; }
+  setUI.tabAccount.addEventListener("click", () => { ac(); showSettingsTab("account"); });
+  setUI.tabControls.addEventListener("click", () => { ac(); showSettingsTab("controls"); });
+  setUI.nameBtn.addEventListener("click", () => {
+    ac();
+    setUI.nameForm.classList.toggle("hidden");
+    if (!setUI.nameForm.classList.contains("hidden")) setUI.nameInput.focus();
+  });
+  setUI.nameSubmit.addEventListener("click", submitName);
+  setUI.nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitName(); });
+  setUI.optBar.addEventListener("change", () => { state.settings.showBar = setUI.optBar.checked; saveSettings(); });
+  setUI.optPct.addEventListener("change", () => { state.settings.showPct = setUI.optPct.checked; saveSettings(); });
+  setUI.back.addEventListener("click", () => goHome());
+
+  // ----- Temples ---------------------------------------------------------
+  const templeListEl = $("templeList");
+  function goTemples() {
+    state.scene = "temples";
+    state.held = false;
+    state.race = null;
+    MUSIC.stop();
+    hideAllOverlays();
+    renderTemples();
+    templesEl.classList.remove("hidden");
+    blurActive();
+  }
+  function renderTemples() {
+    templeListEl.innerHTML = "";
+    TEMPLE_PACKS.forEach((pack) => {
+      const t = pack.temple, n = pack.levels.length, done = Math.min(n, packUnlocked(pack));
+      const lo = pack.levels[0].diff | 0, hi = pack.levels[n - 1].diff | 0;
+      const card = document.createElement("div");
+      card.className = "level-card temple";
+      card.innerHTML =
+        `<div class="temple-ic">${t.icon}</div>` +
+        `<div class="name">${t.name}</div>` +
+        `<div class="desc">${t.desc}</div>` +
+        `<div class="diff-range">${diffFace(lo, 24)} → ${diffFace(hi, 24)}</div>` +
+        `<div class="prog"><div style="width:${(done / n) * 100}%"></div></div>` +
+        (done >= n ? '<span class="badge cleared">TEMPLE CLEARED ✓</span>' : `<span class="badge ready">${done} / ${n} CLEARED · ENTER →</span>`);
+      card.addEventListener("click", () => { ac(); goMenu(pack); });
+      templeListEl.appendChild(card);
+    });
+  }
+  $("backFromTemples").addEventListener("click", () => goHome());
+
+  // ----- Map -------------------------------------------------------------
+  const mapTrailEl = $("mapTrail"), mapSub = $("mapSub");
+  function goMap() {
+    state.scene = "map";
+    state.held = false;
+    state.race = null;
+    MUSIC.stop();
+    hideAllOverlays();
+    renderMap();
+    mapEl.classList.remove("hidden");
+    blurActive();
+  }
+  function renderMap() {
+    mapTrailEl.innerHTML = "";
+    const pack = MAP_PACKS[0];
+    if (!pack) return;
+    const d = DIFFS[pack.trail.diff] || DIFFS[0];
+    mapSub.innerHTML = `${diffFace(pack.trail.diff, 28)} ${pack.trail.name} — five levels, then the dungeon.`;
+    const unlocked = packUnlocked(pack);
+    pack.levels.forEach((lvl, i) => {
+      if (i > 0) {
+        const link = document.createElement("div");
+        link.className = "map-link" + (i <= unlocked ? " done" : "");
+        mapTrailEl.appendChild(link);
+      }
+      const locked = i > unlocked, cleared = i < unlocked;
+      const node = document.createElement("div");
+      node.className = "map-node" + (lvl.dungeon ? " dungeon" : "") + (locked ? " locked" : "") + (cleared ? " cleared" : "");
+      node.innerHTML =
+        `<div class="mstep">${lvl.dungeon ? "Dungeon" : "Stop " + (i + 1)}</div>` +
+        `<div class="dot">${lvl.dungeon ? "🏰" : cleared ? "✓" : locked ? "🔒" : (i + 1)}</div>` +
+        `<div class="mname">${lvl.name}</div>` +
+        (lvl.dungeon ? `<div>${diffFace(lvl.diff | 0, 22)}</div>` : "") +
+        `<span class="coin-mark${levelCoinFound(pack, i) ? " got" : ""}">💠</span>`;
+      if (!locked) node.addEventListener("click", () => { ac(); startLevel(i, pack); });
+      mapTrailEl.appendChild(node);
+    });
+  }
+  $("backFromMap").addEventListener("click", () => goHome());
+
+  // ----- Search: share codes (offline "posting") -------------------------
+  // There is no server, so a "posted" level is a code you copy and send to a
+  // friend; they paste it here and it shows up in their search list.
+  const srchUI = {
+    input: $("searchInput"), postBtn: $("postBtn"),
+    postBox: $("postBox"), postPick: $("postPick"), postText: $("postText"), copyCode: $("copyCode"), postMsg: $("postMsg"),
+    list: $("searchList"), diffs: $("searchDiffs"), count: $("searchCount"), top: $("searchTop"),
+  };
+  function goSearch() {
+    state.scene = "search";
+    state.held = false;
+    MUSIC.stop();
+    hideAllOverlays();
+    srchUI.postBox.classList.add("hidden");
+    srchUI.postMsg.textContent = "";
+    renderSearchDiffs();
+    renderSearch();
+    searchEl.classList.remove("hidden");
+    blurActive();
+  }
+  // Every level gets a short 5-character ID (letters + numbers) for showing and
+  // searching. The ID alone can't hold the level — there's no server behind
+  // GitHub Pages — so the full share code still carries the level data.
+  const ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  function shortId(lvl) {
+    if (lvl.sid && /^[A-Z0-9]{5}$/.test(lvl.sid)) return lvl.sid;
+    let h = 2166136261;
+    for (const ch of String(lvl.id || lvl.name)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    let out = "";
+    for (let i = 0; i < 5; i++) { h = Math.imul(h ^ (h >>> 13), 0x5bd1e995); out += ID_CHARS[(h >>> 0) % ID_CHARS.length]; }
+    lvl.sid = out;
+    return out;
+  }
+  function levelCode(lvl) {
+    const payload = { v: 1, sid: shortId(lvl), name: lvl.name, author: state.settings.name, length: lvl.length, diff: lvl.diff | 0, items: lvl.items,
+      created: lvl.created || 0 };
+    return "SD1." + btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  }
+  // A share LINK is the game's URL with the code in the hash: open it and the
+  // level lands in Search. Works on GitHub Pages because nothing is stored server-side.
+  function shareLink(lvl) {
+    const base = (location.origin && location.origin !== "null" ? location.origin : "") + location.pathname;
+    return base + "#lvl=" + levelCode(lvl);
+  }
+  // accept a pasted link or a bare code
+  function codeFrom(text) {
+    text = String(text || "").trim();
+    const m = text.match(/#lvl=(SD1\.[A-Za-z0-9+/=]+)/);
+    if (m) return m[1];
+    return text.startsWith("SD1.") ? text : null;
+  }
+  function parseCode(code) {
+    code = String(code || "").trim();
+    if (!code.startsWith("SD1.")) return null;
+    try {
+      const o = JSON.parse(decodeURIComponent(escape(atob(code.slice(4)))));
+      if (!o || typeof o.name !== "string" || !isFinite(o.length) || !Array.isArray(o.items)) return null;
+      return {
+        id: "s" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
+        sid: /^[A-Z0-9]{5}$/.test(String(o.sid || "")) ? o.sid : undefined,
+        name: o.name.slice(0, 24), author: String(o.author || "Unknown").slice(0, 16),
+        length: clamp(Math.round(o.length), ED_MIN_LEN, ED_MAX_LEN), diff: clamp(o.diff | 0, 0, DIFFS.length - 1),
+        items: o.items.filter((it) => it && typeof it === "object" && isFinite(it.x)),
+        created: isFinite(o.created) ? +o.created : 0,   // when the author built it
+        added: Date.now(),                                 // when it landed here
+        code,
+      };
+    } catch (e) { return null; }
+  }
+  // Search covers every level: built-in packs, your own creations, and shared codes.
+  // Filter by name (or author / pack) and/or by difficulty face; -1 = any difficulty.
+  let searchDiff = -1;
+  function searchEntries() {
+    const out = [];
+    ALL_PACKS.forEach((pack) => pack.levels.forEach((lvl, i) => {
+      const where = pack.kind === "main" ? "Level " + (i + 1) : pack.kind === "temple" ? pack.temple.name : (lvl.dungeon ? "Map · Dungeon" : "Map · Stop " + (i + 1));
+      out.push({ kind: "builtin", key: "b:" + pack.id + ":" + i, name: lvl.name, diff: lvl.diff | 0, sub: lvl.subtitle, where, pack, index: i,
+        locked: i > packUnlocked(pack), haystack: (lvl.name + " " + where + " " + pack.title).toLowerCase() });
+    }));
+    state.customLevels.forEach((lvl) => out.push({ kind: "mine", key: "m:" + lvl.id, name: lvl.name, diff: lvl.diff | 0, src: lvl, when: levelCreated(lvl),
+      sub: `${lvl.length}px · ${lvl.items.length} piece${lvl.items.length === 1 ? "" : "s"}`, where: "My level · #" + shortId(lvl), haystack: (lvl.name + " my levels " + state.settings.name + " " + shortId(lvl)).toLowerCase() }));
+    state.shared.forEach((lvl) => out.push({ kind: "shared", key: "s:" + lvl.id, name: lvl.name, diff: lvl.diff | 0, src: lvl, author: lvl.author || "Unknown", when: lvl.added || lvl.created || 0,
+      sub: `${lvl.length}px · ${lvl.items.length} piece${lvl.items.length === 1 ? "" : "s"}`, where: "Shared · #" + shortId(lvl), haystack: (lvl.name + " " + (lvl.author || "") + " shared " + shortId(lvl)).toLowerCase() }));
+    return out;
+  }
+  // when a custom level was made (older levels: decode the timestamp baked into the id)
+  function levelCreated(lvl) {
+    if (lvl.created) return lvl.created;
+    const m = /^c([0-9a-z]+)/.exec(String(lvl.id || ""));
+    return m ? parseInt(m[1].slice(0, 8), 36) || 0 : 0;
+  }
+  function whenLabel(ms) {
+    if (!ms) return "";
+    const d = Date.now() - ms;
+    if (d < 60e3) return "just now";
+    if (d < 3600e3) return Math.floor(d / 60e3) + " min ago";
+    if (d < 86400e3) return Math.floor(d / 3600e3) + " h ago";
+    if (d < 7 * 86400e3) return Math.floor(d / 86400e3) + " d ago";
+    return new Date(ms).toLocaleDateString();
+  }
+  function renderSearchDiffs() {
+    srchUI.diffs.innerHTML = "";
+    const any = document.createElement("button");
+    any.className = "diff-pick" + (searchDiff < 0 ? " active" : "");
+    any.innerHTML = "<span class=\"diff-any\">✦</span><span>Any</span>";
+    any.addEventListener("click", () => { searchDiff = -1; renderSearchDiffs(); renderSearch(); });
+    srchUI.diffs.appendChild(any);
+    DIFFS.forEach((d, i) => {
+      const b = document.createElement("button");
+      b.className = "diff-pick" + (searchDiff === i ? " active" : "");
+      b.title = d.name;
+      b.innerHTML = diffFace(i, 30) + `<span>${d.name}</span>`;
+      b.addEventListener("click", () => { searchDiff = searchDiff === i ? -1 : i; renderSearchDiffs(); renderSearch(); });
+      srchUI.diffs.appendChild(b);
+    });
+  }
+  function renderSearch() {
+    const q = srchUI.input.value.trim().toLowerCase().replace(/^#/, "");   // "#A7K3Q" finds by ID
+    srchUI.list.innerHTML = "";
+    const all = searchEntries();
+    // spotlight: the newest level made or added (hidden until there is one)
+    const top = all.reduce((b, e) => ((+e.when || 0) > (b ? +b.when || 0 : 0) ? e : b), null);
+    srchUI.top.innerHTML = "";
+    srchUI.top.classList.toggle("hidden", !top);
+    if (top) {
+      const card = document.createElement("div");
+      card.className = "level-card top-new" + (top.locked ? " locked" : "");
+      card.innerHTML =
+        `<div class="num">🆕 Newest · ${escapeHtml(whenLabel(top.when))}</div>` +
+        `<div class="name">${escapeHtml(top.name)}</div>` +
+        (top.author ? `<div class="author">by ${escapeHtml(top.author)}</div>` : `<div class="author">${escapeHtml(top.where)}</div>`) +
+        diffBadge(top.diff) + (top.locked ? '<span class="badge locked">🔒 LOCKED</span>' : '<span class="badge ready">▶ PLAY</span>');
+      wireSearchCard(card, top);
+      srchUI.top.appendChild(card);
+    }
+    // newest first: levels made or added most recently, then the built-in ones in order
+    const rows = all.filter((e) => (!q || e.haystack.includes(q)) && (searchDiff < 0 || e.diff === searchDiff))
+      .sort((a, b) => (+b.when || 0) - (+a.when || 0));
+    srchUI.count.textContent = `${rows.length} of ${all.length} levels`;
+    if (!rows.length) {
+      const e = document.createElement("p");
+      e.className = "tagline";
+      e.textContent = "No levels match. Try another name or difficulty.";
+      srchUI.list.appendChild(e);
+      return;
+    }
+    rows.forEach((e) => {
+      const card = document.createElement("div");
+      card.className = "level-card" + (e.locked ? " locked" : "");
+      const badge = e.locked ? '<span class="badge locked">🔒 LOCKED</span>' : '<span class="badge ready">▶ PLAY</span>';
+      card.innerHTML =
+        `<div class="num">${escapeHtml(e.where)}</div>` +
+        `<div class="name">${escapeHtml(e.name)}</div>` +
+        (e.author ? `<div class="author">by ${escapeHtml(e.author)}</div>` : "") +
+        `<div class="desc">${escapeHtml(e.sub || "")}</div>` +
+        diffBadge(e.diff) + badge +
+        (e.when ? `<div class="author">${escapeHtml(whenLabel(e.when))}</div>` : "") +
+        (e.kind === "shared" ? '<div class="card-actions"><button class="mini-btn danger" data-act="del">🗑 Remove</button></div>' : "");
+      wireSearchCard(card, e);
+      srchUI.list.appendChild(card);
+    });
+  }
+  // one click handler per card: the remove button, otherwise play
+  function wireSearchCard(card, e) {
+    card.addEventListener("click", (ev) => {
+      const act = ev.target && ev.target.dataset ? ev.target.dataset.act : null;
+      if (act === "del") {
+        ev.stopPropagation();
+        state.shared = state.shared.filter((l) => l !== e.src);
+        saveShared();
+        renderSearch();
+        return;
+      }
+      if (e.locked) return;
+      ac();
+      if (e.kind === "builtin") { state.pack = e.pack; startLevel(e.index, e.pack); }
+      else { state.customSrc = e.src; startCustom(e.kind === "mine" ? "list" : "search"); }
+    });
+  }
+  function renderPostPick() {
+    srchUI.postPick.innerHTML = "";
+    srchUI.postText.value = "";
+    if (!state.customLevels.length) { srchUI.postMsg.textContent = "You haven't built any levels yet — hit Create!"; return; }
+    state.customLevels.forEach((lvl) => {
+      const b = document.createElement("button");
+      b.className = "mini-btn" + (lvl.beaten ? "" : " nope");
+      b.textContent = (lvl.beaten ? "✓ " : "") + lvl.name + " #" + shortId(lvl);
+      b.title = lvl.beaten ? "Post this level" : "Beat this level first";
+      b.addEventListener("click", () => {
+        [...srchUI.postPick.children].forEach((c) => c.classList.remove("active"));
+        b.classList.add("active");
+        if (!lvl.beaten) {
+          srchUI.postText.value = "";
+          srchUI.postMsg.className = "code-msg bad";
+          srchUI.postMsg.textContent = "You have to beat your own level before you can post it.";
+          return;
+        }
+        srchUI.postText.value = shareLink(lvl);
+        srchUI.postMsg.className = "code-msg";
+        srchUI.postMsg.textContent = `Level ID #${shortId(lvl)} — copy the link below and send it to a friend. They open it and the level shows up in their Search.`;
+      });
+      srchUI.postPick.appendChild(b);
+    });
+  }
+  srchUI.input.addEventListener("input", renderSearch);
+  // a friend's share link (or bare code) pasted into the search box is added on the spot
+  function importCode(text) {
+    const code = codeFrom(text);
+    if (!code) return null;
+    const lvl = parseCode(code);
+    if (!lvl) return null;
+    const have = state.shared.find((l) => l.code === lvl.code);
+    if (have) return have;
+    state.shared.unshift(lvl); saveShared(); sfxComplete();
+    return lvl;
+  }
+  srchUI.input.addEventListener("input", () => {
+    const lvl = importCode(srchUI.input.value);
+    if (!lvl) return;
+    srchUI.input.value = "#" + shortId(lvl);
+    renderSearch();
+  });
+  srchUI.postBtn.addEventListener("click", () => {
+    ac();
+    if (!hasAccount()) {
+      showMessage("crash", "NAME NEEDED", "Set your name in Settings → Account to post levels.", "Go to Settings", () => goSettings("account"), true);
+      return;
+    }
+    srchUI.postBox.classList.toggle("hidden");
+    srchUI.postMsg.className = "code-msg";
+    srchUI.postMsg.textContent = "Pick one of your levels.";
+    renderPostPick();
+  });
+  srchUI.copyCode.addEventListener("click", () => {
+    const code = srchUI.postText.value;
+    if (!code) return;
+    const done = () => { srchUI.postMsg.className = "code-msg ok"; srchUI.postMsg.textContent = "Link copied! Send it to a friend."; };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done, () => { srchUI.postText.select(); done(); });
+    else { srchUI.postText.select(); try { document.execCommand("copy"); } catch (e) {} done(); }
+  });
+  $("backFromSearch").addEventListener("click", () => goHome());
+
+  // ----- Races -----------------------------------------------------------
+  // You vs a rival bot on a random-difficulty level. The rival flies the gap
+  // down the middle of the level a hair behind you; it has a difficulty-based
+  // chance of crashing somewhere along the way. Crash and the rival wins.
+  const RIVALS = ["Ace", "Nova", "Blaze", "Comet", "Zed", "Pixel", "Rex", "Luna", "Bolt", "Echo"];
+  const raceUI = { card: $("raceCard"), record: $("raceRecord"), go: $("raceGo"), roll: $("raceRoll") };
+  let racePick = null;
+  function allRaceLevels() {
+    const out = [];
+    ALL_PACKS.forEach((p) => p.levels.forEach((l, i) => out.push({ level: l, pack: p, index: i })));
+    return out;
+  }
+  function rollRace() {
+    const diff = Math.floor(Math.random() * DIFFS.length);
+    const all = allRaceLevels();
+    let pool = [], spread = 0;
+    while (!pool.length && spread < DIFFS.length) {  // nearest tier that has levels
+      pool = all.filter((e) => Math.abs((e.level.diff | 0) - diff) <= spread);
+      spread++;
+    }
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    let rivalSkin = Math.floor(Math.random() * SKINS.length);
+    if (rivalSkin === state.skin) rivalSkin = (rivalSkin + 1) % SKINS.length;
+    racePick = { diff, level: pick.level, pack: pick.pack, index: pick.index,
+      rival: { name: RIVALS[Math.floor(Math.random() * RIVALS.length)], skin: rivalSkin } };
+  }
+  function goRace() {
+    state.scene = "race";
+    state.held = false;
+    state.race = null;
+    MUSIC.stop();
+    hideAllOverlays();
+    if (!racePick) rollRace();
+    renderRace();
+    raceEl.classList.remove("hidden");
+    blurActive();
+  }
+  function renderRace() {
+    const p = racePick, d = DIFFS[p.diff];
+    raceUI.card.innerHTML = "";
+    const you = document.createElement("div"); you.className = "race-side";
+    you.innerHTML = `<div class="rname">${escapeHtml(state.settings.name || "You")}</div><div class="rsub">YOU</div>`;
+    const cvY = document.createElement("canvas"); cvY.width = 116; cvY.height = 72;
+    const cy = cvY.getContext("2d"); cy.translate(58, 38); cy.scale(2, 2); paintShip(cy, SKINS[state.skin] || SKINS[0], true, globalTime);
+    you.insertBefore(cvY, you.firstChild);
+    const vs = document.createElement("div"); vs.className = "race-vs"; vs.textContent = "VS";
+    const riv = document.createElement("div"); riv.className = "race-side";
+    riv.innerHTML = `<div class="rname">${p.rival.name}</div><div class="rsub">RIVAL</div>`;
+    const cvR = document.createElement("canvas"); cvR.width = 116; cvR.height = 72;
+    const cr = cvR.getContext("2d"); cr.translate(58, 38); cr.scale(2, 2); paintShip(cr, SKINS[p.rival.skin], true, globalTime);
+    riv.insertBefore(cvR, riv.firstChild);
+    const lv = document.createElement("div"); lv.className = "race-level";
+    const ld = p.level.diff | 0;
+    lv.innerHTML = `${diffFace(ld, 56)}<div class="lname">${p.level.name}</div><div class="lsub">${DIFFS[ld].name}${ld !== p.diff ? ` (rolled ${d.name} — nearest level)` : ""}</div>`;
+    raceUI.card.append(you, vs, riv, lv);
+    raceUI.record.textContent = `Record: ${state.raceRec.wins} win${state.raceRec.wins === 1 ? "" : "s"} · ${state.raceRec.losses} loss${state.raceRec.losses === 1 ? "" : "es"}`;
+  }
+  function startRace() {
+    const p = racePick;
+    state.race = { rival: p.rival, diff: p.diff, botX: 0, botY: H / 2, botDead: false, botCrashAt: Infinity, toast: 0, pct: 0 };
+    state.pack = { id: "race", kind: "race", title: "RACE", levels: [p.level] };
+    state.custom = state.customSrc = state.customFrom = null;
+    state.mode = "level";
+    state.levelIndex = 0;
+    resetRun();
+  }
+  function resetRaceBot() {
+    const r = state.race, lvl = currentLevel();
+    r.botX = 120 - 50; r.botY = H / 2; r.botDead = false; r.toast = 0; r.pct = 0;
+    // harder tiers make the rival more likely to crash (it's fair: so are you)
+    const pCrash = 0.25 + 0.08 * r.diff;
+    r.botCrashAt = Math.random() < pCrash ? 400 + Math.random() * (lvl.length - 700) : Infinity;
+  }
+  // gap center at world x (top-most floor tip vs. lowest ceiling tip nearby)
+  function gapCenterAt(lvl, x, t) { const g = freeGapAt(lvl, x, t, 30); return (g.top + g.bot) / 2; }
+  function updateRace(dt, lvl) {
+    const r = state.race;
+    r.pct = clamp((state.shipX - 120) / (lvl.length - 120), 0, 1);
+    if (r.toast > 0) r.toast -= dt;
+    if (r.botDead) return;
+    r.botX = state.shipX - 50;
+    const target = gapCenterAt(lvl, r.botX + 90, state.elapsed + 90 / lvl.speed);
+    r.botY += (target - r.botY) * Math.min(1, 7 * dt);
+    if (r.botX >= r.botCrashAt) {
+      r.botDead = true;
+      r.toast = 2.5;
+      spawnExplosion(r.botX, r.botY);
+      sfxCrash();
+    }
+  }
+  function drawRaceBot(camX) {
+    const r = state.race;
+    if (r.botDead) return;
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.translate(r.botX - camX, r.botY);
+    paintShip(ctx, SKINS[r.rival.skin] || SKINS[1], true, globalTime);
+    ctx.restore();
+    ctx.fillStyle = "rgba(255,84,112,0.9)";
+    ctx.font = "bold 11px system-ui, sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(r.rival.name, r.botX - camX, r.botY - 22);
+    ctx.textAlign = "left";
+  }
+  raceUI.go.addEventListener("click", () => { ac(); startRace(); });
+  raceUI.roll.addEventListener("click", () => { ac(); rollRace(); renderRace(); });
+  $("backFromRace").addEventListener("click", () => goHome());
 
   function renderSkins() {
     updateCoinDisplays();
@@ -1507,6 +2491,7 @@
   // "fair telegraph" phasing as the built-in levels: pistons are fully
   // extended and gate holes centered exactly as the ship arrives.
   function expandItem(it, speed) {
+    if (it.kind === "trigger" || it.kind === "coin") return [];   // not obstacles
     const tArr = (it.x + it.w / 2 - 120) / speed;
     if (it.kind === "spike") return [{ x: it.x, w: it.w, h: it.h, dir: it.dir }];
     if (it.kind === "piston") {
@@ -1523,13 +2508,17 @@
     const obstacles = [];
     for (const it of src.items) obstacles.push(...expandItem(it, CUSTOM_SPEED));
     obstacles.sort((a, b) => a.x - b.x);
+    const triggers = src.items.filter((it) => it.kind === "trigger").map((it) => Object.assign({}, it)).sort((a, b) => a.x - b.x);
     return {
       name: src.name || "Untitled",
       subtitle: "Custom level",
       hint: "Your creation — good luck, pilot!",
+      diff: src.diff | 0,
       speed: CUSTOM_SPEED,
       length: src.length,
       obstacles,
+      triggers,
+      coins: src.items.filter((it) => it.kind === "coin").map((it) => ({ x: it.x, y: it.y })),
     };
   }
 
@@ -1562,9 +2551,10 @@
       const card = document.createElement("div");
       card.className = "level-card";
       card.innerHTML =
-        '<div class="num">Custom</div>' +
+        `<div class="num">#${shortId(lvl)}${lvl.beaten ? " · beaten ✓" : ""}</div>` +
         `<div class="name">${escapeHtml(lvl.name)}</div>` +
-        `<div class="desc">${lvl.length}px · ${n} spike${n === 1 ? "" : "s"}</div>` +
+        `<div class="desc">${lvl.length}px · ${n} piece${n === 1 ? "" : "s"}${(lvl.items.filter((i) => i.kind === "coin").length || "") && " · 🪙 " + lvl.items.filter((i) => i.kind === "coin").length}</div>` +
+        diffBadge(lvl.diff | 0) +
         '<span class="badge ready">▶ PLAY</span>' +
         '<div class="card-actions">' +
         '<button class="mini-btn" data-act="edit">✏️ Edit</button>' +
@@ -1602,6 +2592,8 @@
     propsTitle: document.getElementById("edPropsTitle"),
     del: document.getElementById("edDelete"),
     tools: [...editorEl.querySelectorAll(".ed-tool")],
+    diff: document.getElementById("edDiff"),
+    diffPick: document.getElementById("edDiffPick"),
   };
 
   const ED = {
@@ -1625,23 +2617,41 @@
     spike:  { w: 60, h: 180 },
     piston: { w: 90, len: 330, period: 2.2 },
     gate:   { w: 70, gap: 80, amp: 90, period: 3.0 },
+    trigger: { w: 24, str: 5, dur: 3, spd: 1.5, col: "#ff5d8f", col2: "#1a2a6a", bg: "grid" },
+    coin: { w: 24 },
   };
-  const ED_TITLES = { spike: "STATIC SPIKE", piston: "PISTON", gate: "GATE" };
+  const ED_TITLES = { spike: "STATIC SPIKE", piston: "PISTON", gate: "GATE", coin: "SECRET COIN" };
   const ED_DIRS = { bottom: "FLOOR", top: "CEILING", launching: "UP", falling: "DOWN" };
+  // which property rows a trigger type shows
+  const TRIG_PROPS = {
+    shake: ["str", "dur"], pulse: ["col", "str", "dur"], speed: ["spd"], particles: ["col", "str"],
+    color: ["col"], bgcolor: ["col"], background: ["bg"], fade: ["col", "col2", "dur"], stop: [],
+  };
 
-  // property rows: which slider edits which field, for which item kinds
+  // property rows: which control edits which field, for which item kinds
+  // (kinds may be a function of the item for triggers)
   const ED_ROWS = [
-    { id: "W",   prop: "w",      kinds: { spike: 1, piston: 1, gate: 1 }, fmt: (v) => v + "px" },
-    { id: "H",   prop: "h",      kinds: { spike: 1 },                     fmt: (v) => v + "px" },
-    { id: "Len", prop: "len",    kinds: { piston: 1 },                    fmt: (v) => v + "px" },
-    { id: "Gap", prop: "gap",    kinds: { gate: 1 },                      fmt: (v) => v * 2 + "px" },
-    { id: "Amp", prop: "amp",    kinds: { gate: 1 },                      fmt: (v) => v + "px" },
-    { id: "Per", prop: "period", kinds: { piston: 1, gate: 1 },           fmt: (v) => v.toFixed(1) + "s" },
+    { id: "W",   el: "sldW",   prop: "w",      kinds: { spike: 1, piston: 1, gate: 1 }, fmt: (v) => v + "px" },
+    { id: "H",   el: "sldH",   prop: "h",      kinds: { spike: 1 },                     fmt: (v) => v + "px" },
+    { id: "Len", el: "sldLen", prop: "len",    kinds: { piston: 1 },                    fmt: (v) => v + "px" },
+    { id: "Gap", el: "sldGap", prop: "gap",    kinds: { gate: 1 },                      fmt: (v) => v * 2 + "px" },
+    { id: "Amp", el: "sldAmp", prop: "amp",    kinds: { gate: 1 },                      fmt: (v) => v + "px" },
+    { id: "Per", el: "sldPer", prop: "period", kinds: { piston: 1, gate: 1 },           fmt: (v) => v.toFixed(1) + "s" },
+    { id: "Str", el: "sldStr", prop: "str",    kinds: {}, trig: true, fmt: (v) => String(v) },
+    { id: "Dur", el: "sldDur", prop: "dur",    kinds: {}, trig: true, fmt: (v) => v.toFixed(1) + "s" },
+    { id: "Spd", el: "sldSpd", prop: "spd",    kinds: {}, trig: true, fmt: (v) => v.toFixed(1) + "×" },
+    { id: "Col", el: "colCol", prop: "col",    kinds: {}, trig: true, text: true, fmt: (v) => String(v) },
+    { id: "Col2", el: "colCol2", prop: "col2", kinds: {}, trig: true, text: true, fmt: (v) => String(v) },
+    { id: "Bg",  el: "selBg",  prop: "bg",     kinds: {}, trig: true, text: true, fmt: () => "" },
   ];
   for (const r of ED_ROWS) {
     r.row = document.getElementById("row" + r.id);
-    r.sld = document.getElementById("sld" + r.id);
+    r.sld = document.getElementById(r.el);
     r.val = document.getElementById("val" + r.id);
+  }
+  function rowApplies(r, it) {
+    if (it.kind === "trigger") return !!r.trig && TRIG_PROPS[it.type].includes(r.prop);
+    return !!r.kinds[it.kind];
   }
 
   function openEditor(id) {
@@ -1653,6 +2663,7 @@
         name: "My Level " + (state.customLevels.length + 1),
         length: 3000,
         items: [],
+        created: Date.now(),
       };
       state.customLevels.push(lvl);
       saveCustomLevels();
@@ -1667,8 +2678,24 @@
     edUI.name.value = lvl.name;
     edUI.length.value = lvl.length;
     hideProps();
+    renderEdDiff();
     backToEditor();
   }
+
+  // difficulty rating picker (top bar)
+  function renderEdDiff() {
+    const d = ED.lvl ? (ED.lvl.diff | 0) : 0;
+    edUI.diff.innerHTML = diffFace(d, 22) + `<span>${DIFFS[d] ? DIFFS[d].name.toUpperCase() : ""}</span>`;
+    edUI.diffPick.innerHTML = "";
+    DIFFS.forEach((df, i) => {
+      const b = document.createElement("button");
+      b.className = i === d ? "active" : "";
+      b.innerHTML = diffFace(i, 34) + `<span>${df.name}</span>`;
+      b.addEventListener("click", () => { ED.lvl.diff = i; edChanged(); renderEdDiff(); edUI.diffPick.classList.add("hidden"); });
+      edUI.diffPick.appendChild(b);
+    });
+  }
+  edUI.diff.addEventListener("click", () => { ac(); edUI.diffPick.classList.toggle("hidden"); });
 
   // (Re)enter the editor scene without resetting what's being edited.
   function backToEditor() {
@@ -1688,6 +2715,7 @@
       state.customLevels = state.customLevels.filter((l) => l !== ED.lvl);
     }
     saveCustomLevels();
+    edUI.diffPick.classList.add("hidden");
     goCustomMenu();
   }
 
@@ -1702,6 +2730,7 @@
   function edChanged() {
     ED.dirty = true;
     ED.built = null;
+    if (ED.lvl && ED.lvl.beaten) { ED.lvl.beaten = false; }   // edited -> beat it again before posting
     clearTimeout(ED.saveTimer);
     ED.saveTimer = setTimeout(() => {
       saveCustomLevels();
@@ -1716,14 +2745,16 @@
   function showProps() {
     const it = ED.lvl.items[ED.sel];
     if (!it) return hideProps();
-    edUI.propsTitle.textContent = ED_TITLES[it.kind] + (it.dir ? " · " + ED_DIRS[it.dir] : "");
+    edUI.propsTitle.textContent = it.kind === "trigger"
+      ? TRIGGER_INFO[it.type].icon + " " + TRIGGER_INFO[it.type].name
+      : ED_TITLES[it.kind] + (it.dir ? " · " + ED_DIRS[it.dir] : "");
     for (const r of ED_ROWS) {
-      const on = !!r.kinds[it.kind];
+      const on = rowApplies(r, it);
       r.row.classList.toggle("hidden", !on);
       if (on) {
         if (r.prop === "w") r.sld.min = it.kind === "spike" ? 16 : 30;
         r.sld.value = it[r.prop];
-        r.val.textContent = r.fmt(+it[r.prop]);
+        r.val.textContent = r.fmt(r.text ? it[r.prop] : +it[r.prop]);
       }
     }
     edUI.props.classList.remove("hidden");
@@ -1733,8 +2764,8 @@
   // remember the sizes used for this kind so the next placement matches
   function rememberSizes(it) {
     const m = {};
-    for (const r of ED_ROWS) if (r.kinds[it.kind]) m[r.prop] = it[r.prop];
-    ED.mem[it.kind] = m;
+    for (const r of ED_ROWS) if (rowApplies(r, it)) m[r.prop] = it[r.prop];
+    ED.mem[it.kind === "trigger" ? "trigger." + it.type : it.kind] = m;
   }
 
   function deleteSelected() {
@@ -1750,6 +2781,17 @@
   function clampItemX(x, w) { return clamp(x, ED_MIN_X, Math.max(ED_MIN_X, ED.lvl.length - w)); }
 
   function makeItem(tool, wx, wy) {
+    if (tool === "coin") {
+      return { kind: "coin", w: 24, x: clampItemX(snap10(wx), 24), y: Math.round(clamp(wy, 30, H - 30)) };
+    }
+    if (TRIGGER_TYPES.includes(tool)) {
+      const it = Object.assign({ kind: "trigger", type: tool }, ED_DEFAULTS.trigger, ED.mem["trigger." + tool] || {});
+      if (tool === "color") it.col = ED.mem["trigger.color"] ? it.col : "#46e6ff";
+      if (tool === "bgcolor") it.col = ED.mem["trigger.bgcolor"] ? it.col : "#2a1a5e";
+      if (tool === "particles") it.col = ED.mem["trigger.particles"] ? it.col : "#ffffff";
+      it.x = clampItemX(snap10(wx), 0);
+      return it;
+    }
     const kind = tool === "gate" ? "gate" : (tool === "launching" || tool === "falling") ? "piston" : "spike";
     const it = Object.assign({ kind }, ED_DEFAULTS[kind], ED.mem[kind] || {});
     if (kind === "gate") it.center = Math.round(clamp(wy, 100, 440));
@@ -1767,6 +2809,8 @@
 
   // clickable footprint of an item (moving items use their full sweep)
   function itemBounds(it) {
+    if (it.kind === "trigger") return { x: it.x - 14, y: 96, w: 28, h: 56 };  // the flag near the top
+    if (it.kind === "coin") return { x: it.x - 14, y: it.y - 14, w: 28, h: 28 };
     if (it.kind === "spike") {
       return it.dir === "bottom"
         ? { x: it.x, y: FLOOR - it.h, w: it.w, h: it.h }
@@ -1804,12 +2848,12 @@
     if (hit >= 0) {                                  // grab an existing item
       ED.sel = hit;
       const it = ED.lvl.items[hit];
-      ED.drag = { type: "item", dx: wx - it.x, dcy: it.kind === "gate" ? wy - it.center : 0 };
+      ED.drag = { type: "item", dx: wx - it.x, dcy: it.kind === "gate" ? wy - it.center : it.kind === "coin" ? wy - it.y : 0 };
       showProps();
     } else if (ED.tool !== "select") {               // place a new one and keep dragging it
       placeItem(wx, wy);
       const it = ED.lvl.items[ED.sel];
-      ED.drag = { type: "item", dx: wx - it.x, dcy: it.kind === "gate" ? wy - it.center : 0 };
+      ED.drag = { type: "item", dx: wx - it.x, dcy: it.kind === "gate" ? wy - it.center : it.kind === "coin" ? wy - it.y : 0 };
     } else {                                         // pan (or click empty = deselect)
       ED.drag = { type: "pan", px: p.x, cam0: ED.camX, moved: false };
     }
@@ -1833,6 +2877,9 @@
     if (it.kind === "gate") {
       const nc = Math.round(clamp(p.y - d.dcy, 100, 440));
       if (nc !== it.center) { it.center = nc; edChanged(); }
+    } else if (it.kind === "coin") {
+      const ny = Math.round(clamp(p.y - d.dcy, 30, H - 30));
+      if (ny !== it.y) { it.y = ny; edChanged(); }
     }
   }
 
@@ -1901,13 +2948,21 @@
     // obstacles — animated exactly as they'll move in play
     if (!ED.built) ED.built = buildCustomLevel(lvl).obstacles;
     drawObstacles(ED.built, camX, globalTime);
+    // decoration triggers: a flag on a dashed line
+    for (const it of lvl.items) {
+      if (it.kind === "trigger") drawTriggerMarker(it, camX);
+      else if (it.kind === "coin") drawCoin(it.x - camX, it.y, globalTime, false);
+    }
 
     // ghost preview of the item about to be placed
     if (ED.tool !== "select" && ED.hover && !ED.drag && ED.hover.y < ED_SCRUB.y - 6) {
       const wx = ED.hover.x + camX;
       if (edHitTest(wx, ED.hover.y) < 0) {
         ctx.globalAlpha = 0.4;
-        drawObstacles(expandItem(makeItem(ED.tool, wx, ED.hover.y), CUSTOM_SPEED), camX, globalTime);
+        const ghost = makeItem(ED.tool, wx, ED.hover.y);
+        if (ghost.kind === "trigger") drawTriggerMarker(ghost, camX);
+        else if (ghost.kind === "coin") drawCoin(ghost.x - camX, ghost.y, globalTime, false);
+        else drawObstacles(expandItem(ghost, CUSTOM_SPEED), camX, globalTime);
         ctx.globalAlpha = 1;
       }
     }
@@ -1935,6 +2990,25 @@
     roundRect(ED_SCRUB.pad, ED_SCRUB.y, tw, 6, 3); ctx.fill();
     ctx.fillStyle = "rgba(70,230,255,0.7)";
     roundRect(ED_SCRUB.pad + (camX / total) * tw, ED_SCRUB.y, Math.max(26, (W / total) * tw), 6, 3); ctx.fill();
+  }
+
+  function drawTriggerMarker(it, camX) {
+    const sx = it.x - camX;
+    if (sx < -40 || sx > W + 40) return;
+    const info = TRIGGER_INFO[it.type], col = it.type === "color" || it.type === "bgcolor" || it.type === "pulse" || it.type === "particles" ? it.col : info.col;
+    ctx.save();
+    ctx.setLineDash([6, 6]);
+    ctx.strokeStyle = rgba(col, 0.55); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = rgba(col, 0.22); ctx.strokeStyle = rgba(col, 0.9); ctx.lineWidth = 1.5;
+    roundRect(sx - 14, 100, 28, 50, 7); ctx.fill(); ctx.stroke();
+    ctx.font = "16px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "#fff";
+    ctx.fillText(info.icon, sx, 122);
+    ctx.font = "bold 8px system-ui, sans-serif"; ctx.fillStyle = "#fff";
+    ctx.fillText(it.type.slice(0, 5).toUpperCase(), sx, 142);
+    ctx.textAlign = "left";
+    ctx.restore();
   }
 
   // --- editor UI wiring ---
@@ -1969,14 +3043,16 @@
   });
   edUI.del.addEventListener("click", () => deleteSelected());
   for (const r of ED_ROWS) {
-    r.sld.addEventListener("input", () => {
+    const onEdit = () => {
       const it = ED.lvl && ED.lvl.items[ED.sel];
-      if (!it || !r.kinds[it.kind]) return;
-      it[r.prop] = parseFloat(r.sld.value);
+      if (!it || !rowApplies(r, it)) return;
+      it[r.prop] = r.text ? r.sld.value : parseFloat(r.sld.value);
       r.val.textContent = r.fmt(it[r.prop]);
       rememberSizes(it);
       edChanged();
-    });
+    };
+    r.sld.addEventListener("input", onEdit);
+    r.sld.addEventListener("change", onEdit);
   }
 
   // ----- Input -----------------------------------------------------------
@@ -1989,7 +3065,7 @@
       ac();
       if (state.scene === "play") state.held = true;
       else if (state.scene === "crash") restartRun(); // respawn instantly
-      else if (state.scene === "complete" || state.scene === "win" || state.scene === "flyover") {
+      else if (state.scene === "complete" || state.scene === "win" || state.scene === "flyover" || state.scene === "raceover") {
         advance();
         if (state.scene === "play") state.held = true; // carry the hold into the next attempt
       }
@@ -1997,17 +3073,21 @@
     }
     if (e.code === "KeyR") {
       if (state.scene === "play" || state.scene === "crash" || state.scene === "paused" ||
-          state.scene === "complete" || state.scene === "flyover") {
+          state.scene === "complete" || state.scene === "flyover" || state.scene === "raceover") {
         restartRun();
       }
     } else if (e.code === "Escape" || e.code === "KeyP") {
       if (state.scene === "play") pauseGame();
       else if (state.scene === "paused") resumeGame();
       else if (e.code === "Escape") {
-        if (state.scene === "menu" || state.scene === "skins" || state.scene === "custommenu") goHome();
+        if (state.scene === "menu" || state.scene === "skins" || state.scene === "custommenu" ||
+            state.scene === "settings" || state.scene === "temples" || state.scene === "map" ||
+            state.scene === "search" || state.scene === "race") goHome();
         else if (state.scene === "complete" || state.scene === "win" ||
-                 state.scene === "crash" || state.scene === "flyover") exitRun();
+                 state.scene === "crash" || state.scene === "flyover" || state.scene === "raceover") exitRun();
       }
+    } else if (e.code === "KeyC") {
+      if (state.scene === "play" && assistAllowed() && state.modes.practice) { setCheckpoint(); tone(660, 0, 0.06, "square", 0.08); }
     } else if (e.code === "KeyM") {
       muted = !muted;
       MUSIC.setMuted(muted);
@@ -2069,22 +3149,31 @@
   menuBtn.addEventListener("click", () => exitRun());
   resumeBtn.addEventListener("click", () => resumeGame());
   exitBtn.addEventListener("click", () => exitRun());
+  noclipBtn.addEventListener("click", () => toggleMode("noclip"));
+  practiceBtn.addEventListener("click", () => toggleMode("practice"));
   // tap the backdrop (not a button) to advance / resume — nice on mobile
   messageEl.addEventListener("click", (e) => { if (e.target === messageEl) advance(); });
   pauseEl.addEventListener("click", (e) => { if (e.target === pauseEl) resumeGame(); });
   document.getElementById("resetProgress").addEventListener("click", () => {
     storeDel(STORE_KEY);
     state.unlocked = 0;
-    renderMenu();
+    renderMenu(state.pack);
   });
   // home / navigation buttons
-  playBtn.addEventListener("click", () => { ac(); goMenu(); });
+  playBtn.addEventListener("click", () => { ac(); goMenu(MAIN_PACK); });
   flyBtn.addEventListener("click", () => { ac(); startFly(); });
   skinBtn.addEventListener("click", () => { ac(); goSkins(); });
   createBtn.addEventListener("click", () => { ac(); goCustomMenu(); });
+  plusBtn.addEventListener("click", (e) => { e.stopPropagation(); ac(); plusMenu.classList.toggle("hidden"); });
+  homeEl.addEventListener("click", (e) => { if (!plusMenu.contains(e.target) && e.target !== plusBtn) plusMenu.classList.add("hidden"); });
+  $("templesBtn").addEventListener("click", () => { ac(); goTemples(); });
+  $("mapBtn").addEventListener("click", () => { ac(); goMap(); });
+  $("searchBtn").addEventListener("click", () => { ac(); goSearch(); });
+  $("raceBtn").addEventListener("click", () => { ac(); goRace(); });
+  $("settingsBtn").addEventListener("click", () => { ac(); goSettings("account"); });
   backFromCustom.addEventListener("click", () => goHome());
   chestBtn.addEventListener("click", () => { ac(); openChest(); });
-  backFromLevels.addEventListener("click", () => goHome());
+  backFromLevels.addEventListener("click", () => { if (state.pack && state.pack.kind === "temple") goTemples(); else goHome(); });
   backFromSkins.addEventListener("click", () => goHome());
 
   // ----- Main loop -------------------------------------------------------
@@ -2140,8 +3229,20 @@
   }
 
   // ----- Boot ------------------------------------------------------------
+  // tiny hook for headless checks (console / test harness) — no gameplay use
+  window.__shipdash = { levelCoins, freeGapAt, ALL_PACKS, state };
   applyControlHints();
   if (!isOwned(state.skin)) state.skin = 0; // never start equipped on a ship you don't own
   goHome();
+  // opened from a friend's share link? add the level and jump to Search
+  (function openShareLink() {
+    if (!/#lvl=/.test(location.hash || "")) return;
+    const lvl = importCode(location.hash);
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+    if (!lvl) return;
+    goSearch();
+    srchUI.input.value = "#" + shortId(lvl);
+    renderSearch();
+  })();
   requestAnimationFrame(frame);
 })();

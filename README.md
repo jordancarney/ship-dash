@@ -10,6 +10,21 @@ the end. Controls are shown on screen, so there's nothing to memorize.
 - Hand-built levels that ramp from gentle to unforgiving
 - Coins 🪙 for clearing levels — spend them on new ships, and don't miss the daily chest
 - A built-in level creator: place obstacles, resize them, test instantly, and play your own
+- Decoration triggers in the creator: shake, pulse, speed, particles, spike and background
+  colors, background styles, fades, and a stop trigger
+- Eight difficulty ratings, each with its own face: Easy, Hard, Insane, Ultra, and the four Demons
+- More worlds behind the ➕ button: three Temples (five levels each, easy to brutal), a Map
+  trail with a Dungeon at the end, Races against a rival bot, and Straight Fly
+- Search every level by name, 5-character level ID, or difficulty face, newest first, with the
+  newest level spotlighted at the top. Share a level as a link: beat your own level, post it,
+  and a friend opens the link (or pastes it into Search) to get the level
+- Pick a name once in Settings; names can't be changed afterwards
+- Settings: pick a name for posting and racing, and toggle the percentage bar and readout
+- A secret coin in every level, tucked off the main line; grab it and finish the level to bank a
+  bonus. Every built-in coin is checked reachable by a headless search. The creator has a Secret
+  Coin tool so your own levels can hide one too
+- Noclip and Practice modes in the pause menu to explore a level (fly through spikes, or respawn
+  at checkpoints with C). Clears made with either never count
 - Procedurally synthesized music, a different beat per level, ramping from bright and
   friendly to dark and driving as the levels get harder
 

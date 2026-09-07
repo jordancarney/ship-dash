@@ -159,7 +159,7 @@ function composeLevel(meta, sections) {
   }
   obstacles.sort((a, b) => a.x - b.x);
   return {
-    name: meta.name, subtitle: meta.subtitle, hint: meta.hint,
+    name: meta.name, subtitle: meta.subtitle, hint: meta.hint, diff: meta.diff || 0,
     speed: meta.speed, length: x - trans + (meta.outro || 320), obstacles,
   };
 }
@@ -230,6 +230,7 @@ function buildChaosLevel() {
 
   return {
     name: "Bedlam",
+    diff: 1,
     subtitle: "A chaotic journey",
     hint: "No patterns here — read the chaos and weave your way through!",
     speed: 200,
@@ -246,6 +247,7 @@ const LEVELS = [
   // ----------------------------------------------------------------------
   {
     name: "Steady Hands",
+    diff: 0,
     subtitle: "Learn to hover",
     hint: "Tap SPACE to hover and hold the line. Stay in the middle!",
     speed: 250,
@@ -263,6 +265,7 @@ const LEVELS = [
   // ----------------------------------------------------------------------
   {
     name: "Up & Over",
+    diff: 0,
     subtitle: "Climb and dive",
     hint: "HOLD SPACE to climb over, RELEASE to dive under. Weave through!",
     speed: 205,
@@ -284,6 +287,7 @@ const LEVELS = [
   // ----------------------------------------------------------------------
   {
     name: "The Gauntlet",
+    diff: 0,
     subtitle: "Everything you've learned",
     hint: "Hold steady through the corridor… then climb and dive at the end!",
     speed: 225,
@@ -308,6 +312,7 @@ const LEVELS = [
   // ----------------------------------------------------------------------
   {
     name: "Razor's Edge",
+    diff: 1,
     subtitle: "Pixel-perfect flying",
     hint: "No room for error. Thread the corridor, then nail every climb and dive.",
     speed: 230,
@@ -341,7 +346,7 @@ const LEVELS = [
 
   // L6 — everything from 1–5, plus the new moving spikes, a notch above L5.
   composeLevel(
-    { name: "Liftoff", subtitle: "Old tricks + amber spikes", speed: 200,
+    { name: "Liftoff", diff: 1, subtitle: "Old tricks + amber spikes", speed: 200,
       hint: "AMBER spikes MOVE — they launch up and drop down. Everything else is back too!" },
     [
       (x) => segCorridor(x, 560, 176),
@@ -352,7 +357,7 @@ const LEVELS = [
   ),
   // L7
   composeLevel(
-    { name: "Drop Zone", subtitle: "Weave the moving spikes", speed: 203,
+    { name: "Drop Zone", diff: 2, subtitle: "Weave the moving spikes", speed: 203,
       hint: "Fallers drop, launchers rise — thread them, then hold the line." },
     [
       (x, sp) => segPistons(x, 5, 350, 88, 348, 2.0, sp, "falling"),
@@ -363,7 +368,7 @@ const LEVELS = [
   ),
   // L8
   composeLevel(
-    { name: "Push & Pull", subtitle: "Static and moving, together", speed: 207,
+    { name: "Push & Pull", diff: 2, subtitle: "Static and moving, together", speed: 207,
       hint: "Now static and moving spikes are mixed. Climb, dive, weave, repeat." },
     [
       (x) => segZigzag(x, 4, 334, 128, 378, "bottom"),
@@ -374,7 +379,7 @@ const LEVELS = [
   ),
   // L9
   composeLevel(
-    { name: "Crossfire", subtitle: "Fast and unforgiving", speed: 211,
+    { name: "Crossfire", diff: 2, subtitle: "Fast and unforgiving", speed: 211,
       hint: "Read everything early. Tight chaos, moving walls, a razor zig-zag." },
     [
       (x) => segChaos(x, 640, 63, 3409),
@@ -385,7 +390,7 @@ const LEVELS = [
   ),
   // L10 — the gauntlet of gauntlets (moving spikes live in the mix section).
   composeLevel(
-    { name: "Overload", subtitle: "Everything, all at once", speed: 217,
+    { name: "Overload", diff: 3, subtitle: "Everything, all at once", speed: 217,
       hint: "Every trick in the game, back to back. Trust the rhythm and don't stop!" },
     [
       (x) => segCorridor(x, 520, 204),
@@ -403,7 +408,7 @@ const LEVELS = [
 
   // L11 — gentle introduction to gates: big holes, slow, with a corridor warmup.
   composeLevel(
-    { name: "Gateway", subtitle: "Ride the moving hole", speed: 196,
+    { name: "Gateway", diff: 2, subtitle: "Ride the moving hole", speed: 196,
       hint: "PURPLE gates slide up and down — fly through the moving hole!" },
     [
       (x) => segCorridor(x, 460, 170),
@@ -413,7 +418,7 @@ const LEVELS = [
   ),
   // L12 — gates + the big climb-and-dive zig-zag.
   composeLevel(
-    { name: "Slipstream", subtitle: "Gates meet the zig-zag", speed: 200,
+    { name: "Slipstream", diff: 3, subtitle: "Gates meet the zig-zag", speed: 200,
       hint: "Surf the gates, then climb and dive the big spikes." },
     [
       (x, sp) => segGates(x, 6, 290, 72, 80, 80, 3.2, sp),
@@ -423,7 +428,7 @@ const LEVELS = [
   ),
   // L13 — gates woven with jagged chaos.
   composeLevel(
-    { name: "Tide", subtitle: "Gates in the chaos", speed: 203,
+    { name: "Tide", diff: 3, subtitle: "Gates in the chaos", speed: 203,
       hint: "Read the chaos, then surf the rising and falling gate." },
     [
       (x) => segChaos(x, 560, 74, 4101),
@@ -433,7 +438,7 @@ const LEVELS = [
   ),
   // L14 — TWO moving mechanics at once: amber pistons and purple gates.
   composeLevel(
-    { name: "Twin Engines", subtitle: "Pistons and gates", speed: 205,
+    { name: "Twin Engines", diff: 4, subtitle: "Pistons and gates", speed: 205,
       hint: "Amber pistons AND purple gates now — both move. Stay calm and read ahead." },
     [
       (x, sp) => segPistons(x, 4, 340, 90, 330, 2.2, sp, "launching"),
@@ -443,7 +448,7 @@ const LEVELS = [
   ),
   // L15 — tighter holes, bigger swings, plus a razor zig-zag.
   composeLevel(
-    { name: "Undertow", subtitle: "Tighter, faster gates", speed: 208,
+    { name: "Undertow", diff: 4, subtitle: "Tighter, faster gates", speed: 208,
       hint: "Tighter holes, bigger swings. Anticipate the hole — don't chase it." },
     [
       (x, sp) => segGates(x, 8, 270, 68, 74, 108, 2.8, sp),
@@ -453,7 +458,7 @@ const LEVELS = [
   ),
   // L16 — the whole toolbox in one run.
   composeLevel(
-    { name: "Everything Wave", subtitle: "The whole toolbox", speed: 210,
+    { name: "Everything Wave", diff: 5, subtitle: "The whole toolbox", speed: 210,
       hint: "Corridor, gates, mixed spikes, chaos — all of it, in one breath." },
     [
       (x) => segCorridor(x, 460, 196),
@@ -464,7 +469,7 @@ const LEVELS = [
   ),
   // L17 — fast gate waves squeezed between walls.
   composeLevel(
-    { name: "Crosscurrent", subtitle: "Fast gates, tight walls", speed: 212,
+    { name: "Crosscurrent", diff: 5, subtitle: "Fast gates, tight walls", speed: 212,
       hint: "Fast gates between the walls. Find the rhythm and ride it." },
     [
       (x) => segChaos(x, 600, 64, 4107),
@@ -475,7 +480,7 @@ const LEVELS = [
   ),
   // L18 — no safe stretch: gates, zig-zag, pistons, gates.
   composeLevel(
-    { name: "Riptide", subtitle: "No safe stretch", speed: 214,
+    { name: "Riptide", diff: 6, subtitle: "No safe stretch", speed: 214,
       hint: "Gates, razor zig-zag, pistons — then gates again. Never freeze." },
     [
       (x, sp) => segGates(x, 8, 256, 64, 68, 120, 2.6, sp),
@@ -486,7 +491,7 @@ const LEVELS = [
   ),
   // L19 — everything, at speed.
   composeLevel(
-    { name: "Maelstrom", subtitle: "Everything, at speed", speed: 216,
+    { name: "Maelstrom", diff: 6, subtitle: "Everything, at speed", speed: 216,
       hint: "Everything at speed. Trust your reads and don't freeze." },
     [
       (x) => segChaos(x, 640, 62, 4109),
@@ -497,7 +502,7 @@ const LEVELS = [
   ),
   // L20 — the final gauntlet: every mechanic, all at once.
   composeLevel(
-    { name: "Event Horizon", subtitle: "The final gauntlet", speed: 220,
+    { name: "Event Horizon", diff: 7, subtitle: "The final gauntlet", speed: 220,
       hint: "Every mechanic, all at once. This is the end of the line — good luck, pilot!" },
     [
       (x) => segCorridor(x, 440, 206),
@@ -511,3 +516,4 @@ const LEVELS = [
 ];
 
 window.LEVELS = LEVELS;
+window.LEVEL_LIB = { spikeRow, makeRng, piston, segCorridor, segZigzag, segChaos, segPistons, segMix, segGates, composeLevel };

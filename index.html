@@ -6,7 +6,7 @@
   <title>Ship Dash</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>" />
   <!-- ?v= busts stale caches — bump it (today's date works) whenever css/ or js/ change -->
-  <link rel="stylesheet" href="css/style.css?v=20260718" />
+  <link rel="stylesheet" href="css/style.css?v=20260907c" />
 </head>
 <body>
   <div id="stage">
@@ -19,14 +19,29 @@
       <p class="tagline">Fly the ship. Dodge the spikes. Reach the end.</p>
       <canvas id="homeShip" class="home-ship" width="220" height="130"></canvas>
       <div class="home-actions">
-        <button id="playBtn" class="btn btn-big">▶&nbsp; Play</button>
-        <button id="flyBtn" class="btn btn-ghost btn-big">Straight Fly</button>
         <button id="skinBtn" class="btn btn-ghost btn-big">Ships</button>
-        <button id="createBtn" class="btn btn-ghost btn-big">✏️&nbsp;Create</button>
+        <button id="playBtn" class="btn btn-big">▶&nbsp; Play</button>
+        <div class="plus-wrap">
+          <button id="plusBtn" class="btn btn-ghost btn-big btn-plus" title="More modes">+</button>
+          <div id="plusMenu" class="plus-menu hidden">
+            <button id="createBtn" class="plus-item"><span class="pi-ic">✏️</span>Create</button>
+            <button id="flyBtn" class="plus-item"><span class="pi-ic">🚀</span>Straight Fly</button>
+            <button id="templesBtn" class="plus-item"><span class="pi-ic">🏛️</span>Temples</button>
+            <button id="mapBtn" class="plus-item"><span class="pi-ic">🗺️</span>Map</button>
+            <button id="raceBtn" class="plus-item"><span class="pi-ic">🏁</span>Races</button>
+          </div>
+        </div>
+      </div>
+      <div class="home-actions home-row2">
+        <button id="searchBtn" class="btn btn-ghost btn-big btn-search">🔍&nbsp; Search</button>
       </div>
       <div class="controls-hint">
         <span class="key">SPACE</span> hold to rise &nbsp;·&nbsp; tap to hover &nbsp;·&nbsp; release to fall
       </div>
+      <button id="settingsBtn" class="settings-btn" title="Settings">
+        <span class="settings-icon">⚙️</span>
+        <span class="settings-label">Settings</span>
+      </button>
       <button id="chestBtn" class="chest-btn available" title="Daily chest">
         <span class="chest-icon">🎁</span>
         <span class="chest-label">Daily</span>
@@ -35,7 +50,8 @@
 
     <!-- Level select -->
     <div id="menu" class="overlay hidden">
-      <h2 class="screen-title">SELECT LEVEL</h2>
+      <h2 id="menuTitle" class="screen-title">SELECT LEVEL</h2>
+      <p id="menuSub" class="tagline hidden"></p>
       <div id="levelSelect" class="level-grid"></div>
       <div class="screen-actions">
         <button id="backFromLevels" class="btn btn-ghost">←&nbsp; Back</button>
@@ -62,6 +78,7 @@
           <input id="edLength" class="ed-input" type="number" min="1000" max="20000" step="100" />
           <span class="ed-unit">px</span>
         </label>
+        <button id="edDiff" class="ed-diff" title="Difficulty rating"></button>
         <span id="edSaved" class="ed-saved">SAVED ✓</span>
         <button id="edTest" class="btn btn-sm">▶&nbsp;Test</button>
       </div>
@@ -73,6 +90,20 @@
         <button class="ed-tool" data-tool="launching" title="Moving spike that launches up from the floor"><span class="tri tri-up amber"></span>Launcher</button>
         <button class="ed-tool" data-tool="falling" title="Moving spike that drops down from the ceiling"><span class="tri tri-down amber"></span>Faller</button>
         <button class="ed-tool" data-tool="gate" title="Sliding gate with a moving hole"><span class="gate-ic"><span class="g-t"></span><span class="g-b"></span></span>Gate</button>
+        <button class="ed-tool" data-tool="coin" title="A secret coin to find (drag it anywhere)"><span class="coin-ic"></span>Secret Coin</button>
+      </div>
+      <div id="edDiffPick" class="ed-diffpick hidden"></div>
+      <div class="ed-triggers">
+        <div class="ed-trig-head">DECORATION</div>
+        <button class="ed-tool ed-trig" data-tool="shake" title="Shakes the screen">💥 Shake</button>
+        <button class="ed-tool ed-trig" data-tool="pulse" title="Pulses the screen in a color">💓 Pulse</button>
+        <button class="ed-tool ed-trig" data-tool="speed" title="Changes the ship's speed">⚡ Speed</button>
+        <button class="ed-tool ed-trig" data-tool="particles" title="Floating mini circles">✨ Particles</button>
+        <button class="ed-tool ed-trig" data-tool="color" title="Changes the spike color">🔺 Colors</button>
+        <button class="ed-tool ed-trig" data-tool="bgcolor" title="Changes the background color">🎨 BG Color</button>
+        <button class="ed-tool ed-trig" data-tool="background" title="Changes the background style">🌌 Background</button>
+        <button class="ed-tool ed-trig" data-tool="fade" title="Fades spike and background colors together">🌈 Fade</button>
+        <button class="ed-tool ed-trig" data-tool="stop" title="Stops every running trigger">⏹ Stop</button>
       </div>
       <div id="edProps" class="ed-props hidden">
         <div class="ed-props-head">
@@ -85,6 +116,12 @@
         <label class="ed-row" id="rowGap">Hole<input type="range" id="sldGap" min="36" max="200" step="2" /><span class="ed-val" id="valGap"></span></label>
         <label class="ed-row" id="rowAmp">Swing<input type="range" id="sldAmp" min="0" max="200" step="5" /><span class="ed-val" id="valAmp"></span></label>
         <label class="ed-row" id="rowPer">Cycle<input type="range" id="sldPer" min="0.8" max="5" step="0.1" /><span class="ed-val" id="valPer"></span></label>
+        <label class="ed-row" id="rowStr">Power<input type="range" id="sldStr" min="1" max="10" step="1" /><span class="ed-val" id="valStr"></span></label>
+        <label class="ed-row" id="rowDur">Time<input type="range" id="sldDur" min="0.5" max="10" step="0.5" /><span class="ed-val" id="valDur"></span></label>
+        <label class="ed-row" id="rowSpd">Speed<input type="range" id="sldSpd" min="0.5" max="2.5" step="0.1" /><span class="ed-val" id="valSpd"></span></label>
+        <label class="ed-row" id="rowCol">Color<input type="color" id="colCol" /><span class="ed-val" id="valCol"></span></label>
+        <label class="ed-row" id="rowCol2">BG<input type="color" id="colCol2" /><span class="ed-val" id="valCol2"></span></label>
+        <label class="ed-row" id="rowBg">Style<select id="selBg" class="ed-input ed-select"><option value="stars">Stars</option><option value="grid">Grid</option><option value="hills">Hills</option><option value="nebula">Nebula</option><option value="void">Void</option></select><span class="ed-val"></span></label>
       </div>
     </div>
 
@@ -94,6 +131,86 @@
       <h2 class="screen-title">CHOOSE YOUR SHIP</h2>
       <div id="skinGrid" class="skin-grid"></div>
       <button id="backFromSkins" class="btn btn-ghost">←&nbsp; Back</button>
+    </div>
+
+    <!-- Settings -->
+    <div id="settings" class="overlay hidden">
+      <h2 class="screen-title">SETTINGS</h2>
+      <div class="settings-tabs">
+        <button id="tabAccount" class="btn btn-ghost tab-btn active">👤&nbsp; Account</button>
+        <button id="tabControls" class="btn btn-ghost tab-btn">🎮&nbsp; Controls</button>
+      </div>
+      <div id="panelAccount" class="settings-panel">
+        <p id="accountStatus" class="tagline">No name yet — pick one to post levels and race.</p>
+        <button id="nameBtn" class="btn btn-ghost">✏️&nbsp; Name</button>
+        <div id="nameForm" class="name-form hidden">
+          <input id="nameInput" class="ed-input" maxlength="16" placeholder="Your name" spellcheck="false" autocomplete="off" />
+          <button id="nameSubmit" class="btn">Submit</button>
+        </div>
+      </div>
+      <div id="panelControls" class="settings-panel hidden">
+        <label class="toggle-row"><input type="checkbox" id="optBar" /> Show percentage bar</label>
+        <label class="toggle-row"><input type="checkbox" id="optPct" /> Show percentage</label>
+        <p class="tagline">The bar and number show how far through a level you are.</p>
+      </div>
+      <button id="backFromSettings" class="btn btn-ghost">←&nbsp; Back</button>
+    </div>
+
+    <!-- Temples -->
+    <div id="temples" class="overlay hidden">
+      <h2 class="screen-title">TEMPLES</h2>
+      <p class="tagline">Each temple starts easy and ends brutal. Clear a level to unlock the next.</p>
+      <div id="templeList" class="level-grid"></div>
+      <div class="screen-actions">
+        <button id="backFromTemples" class="btn btn-ghost">←&nbsp; Back</button>
+      </div>
+    </div>
+
+    <!-- Map -->
+    <div id="map" class="overlay hidden">
+      <h2 class="screen-title">MAP</h2>
+      <p id="mapSub" class="tagline"></p>
+      <div id="mapTrail" class="map-trail"></div>
+      <div class="screen-actions">
+        <button id="backFromMap" class="btn btn-ghost">←&nbsp; Back</button>
+      </div>
+    </div>
+
+    <!-- Search: shared levels (share codes — no server needed) -->
+    <div id="search" class="overlay hidden">
+      <button id="backFromSearch" class="btn btn-ghost btn-sm back-pin">←&nbsp; Back</button>
+      <h2 class="screen-title">SEARCH LEVELS</h2>
+      <p class="tagline">Find any level by name, or pick a difficulty face. Newest levels first. Got a friend's link? Open it, or paste it into the box.</p>
+      <div class="search-bar">
+        <input id="searchInput" class="ed-input" placeholder="Search by name, author, level ID, or paste a code" spellcheck="false" autocomplete="off" />
+        <button id="postBtn" class="btn btn-sm">📤&nbsp;Post my level</button>
+      </div>
+      <div id="searchDiffs" class="search-diffs"></div>
+      <div id="searchCount" class="search-count"></div>
+      <div id="postBox" class="code-box hidden">
+        <div id="postPick" class="post-pick"></div>
+        <textarea id="postText" class="ed-input code-text" readonly spellcheck="false"></textarea>
+        <div class="code-actions">
+          <button id="copyCode" class="btn btn-sm">🔗&nbsp;Copy link</button>
+          <span id="postMsg" class="code-msg"></span>
+        </div>
+      </div>
+      <div id="searchTop" class="search-top hidden"></div>
+      <div id="searchList" class="level-grid"></div>
+      <p class="tagline search-end">That's every level. Scroll up to search again.</p>
+    </div>
+
+    <!-- Races: you vs a rival bot on a random-difficulty level -->
+    <div id="race" class="overlay hidden">
+      <h2 class="screen-title">RACES</h2>
+      <p class="tagline">Race a rival pilot through a level of random difficulty. Crash and they win. Finish first and you win!</p>
+      <div id="raceCard" class="race-card"></div>
+      <div id="raceRecord" class="tagline"></div>
+      <div class="screen-actions">
+        <button id="backFromRace" class="btn btn-ghost">←&nbsp; Back</button>
+        <button id="raceRoll" class="btn btn-ghost">🎲&nbsp; New rival</button>
+        <button id="raceGo" class="btn">🏁&nbsp; Race!</button>
+      </div>
     </div>
 
     <!-- In-level message (crash / complete / win) -->
@@ -118,12 +235,20 @@
         <button id="resumeBtn" class="btn">Resume</button>
         <button id="exitBtn" class="btn btn-ghost">Exit</button>
       </div>
+      <div id="modeRow" class="message-actions mode-row">
+        <button id="noclipBtn" class="btn btn-ghost btn-sm" title="Fly through spikes to see the level">👻 Noclip: OFF</button>
+        <button id="practiceBtn" class="btn btn-ghost btn-sm" title="Respawn at checkpoints instead of the start">🚩 Practice: OFF</button>
+      </div>
+      <p id="modeHint" class="small-hint">Noclip and Practice let you explore a level — clears in them don't count.</p>
       <p class="small-hint">Press <span class="key">ESC</span> or <span class="key">P</span> to resume</p>
     </div>
   </div>
 
-  <script src="js/levels.js?v=20260718"></script>
-  <script src="js/music.js?v=20260718"></script>
-  <script src="js/game.js?v=20260718"></script>
+  <script src="js/difficulty.js?v=20260907c"></script>
+  <script src="js/levels.js?v=20260907c"></script>
+  <script src="js/worlds.js?v=20260907c"></script>
+  <script src="js/secretcoins.js?v=20260907c"></script>
+  <script src="js/music.js?v=20260907c"></script>
+  <script src="js/game.js?v=20260907c"></script>
 </body>
 </html>
