@@ -26,9 +26,14 @@
     { id: "stardust",  name: "Stardust",  cost: 125, desc: "Twinkling stars scatter behind you" },
     { id: "lightning", name: "Lightning", cost: 150, desc: "Crackling bolts chase your tail" },
     { id: "echo",      name: "Echo",      cost: 200, desc: "Ghostly copies of your ship follow you" },
+    { id: "bubbles",   name: "Bubbles",   cost: 225, desc: "A stream of bubbles wobbles up and pops" },
+    { id: "confetti",  name: "Confetti",  cost: 250, desc: "A party of paper squares tumbles behind you" },
+    { id: "hearts",    name: "Hearts",    cost: 300, desc: "Little hearts float up in your wake" },
   ];
   const MAX_PTS = 70;                 // ~1.2 s of positions at 60 fps
   const STAR_COLS = ["#ffffff", "#ffe98a", "#9ff3ff", "#ffb3f0"];
+  const CONFETTI_COLS = ["#46e6ff", "#ffd166", "#ff5470", "#9cff57", "#ff4bd8", "#b388ff", "#ffffff"];
+  const HEART_COLS = ["#ff5d8f", "#ff8fb8", "#ffb3d9", "#ff4bd8"];
   const TAU = Math.PI * 2;
   const rnd = Math.random;
   let paintShip = null;
@@ -64,6 +69,30 @@
           tr.parts.push({ kind: "spark", x: x - 8, y: y + (rnd() - 0.5) * 12, vx: -40 - rnd() * 120, vy: (rnd() - 0.5) * 160, life, max: life, r0: 1 + rnd() * 1.5 });
         }
         break;
+      case "bubbles":                    // bubbles wobble up out of the engine and pop
+        tr.acc += dt * 26;
+        while (tr.acc >= 1) {
+          tr.acc -= 1; life = 0.7 + rnd() * 0.7;
+          tr.parts.push({ kind: "bubble", x: x - 10 + (rnd() - 0.5) * 6, y: y + (rnd() - 0.5) * 10, vx: -20 - rnd() * 40, vy: -25 - rnd() * 35, life, max: life,
+            r0: 2 + rnd() * 3.5, spin: rnd() * TAU, tw: 5 + rnd() * 5 });
+        }
+        break;
+      case "confetti":                   // paper squares tumble out and flutter down
+        tr.acc += dt * 30;
+        while (tr.acc >= 1) {
+          tr.acc -= 1; life = 0.6 + rnd() * 0.6;
+          tr.parts.push({ kind: "confetti", x: x - 8, y: y + (rnd() - 0.5) * 14, vx: -30 - rnd() * 80, vy: -40 + rnd() * 80, life, max: life,
+            r0: 2.2 + rnd() * 2.2, col: CONFETTI_COLS[(rnd() * CONFETTI_COLS.length) | 0], spin: rnd() * TAU, tw: (rnd() - 0.5) * 16 });
+        }
+        break;
+      case "hearts":                     // little hearts drift up and fade
+        tr.acc += dt * 12;
+        while (tr.acc >= 1) {
+          tr.acc -= 1; life = 0.7 + rnd() * 0.5;
+          tr.parts.push({ kind: "heart", x: x - 10, y: y + (rnd() - 0.5) * 12, vx: -25 - rnd() * 40, vy: -30 - rnd() * 40, life, max: life,
+            r0: 2.5 + rnd() * 2.5, col: HEART_COLS[(rnd() * HEART_COLS.length) | 0], spin: rnd() * TAU, tw: 6 + rnd() * 4 });
+        }
+        break;
     }
     update(tr, dt);
   }
@@ -73,6 +102,8 @@
     for (const p of tr.parts) {
       p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
       if (p.kind === "flame") { p.vy -= 90 * dt; p.vx *= Math.max(0, 1 - 2 * dt); }   // fire rises and slows
+      else if (p.kind === "bubble") p.x += Math.sin(p.spin + p.life * p.tw) * 30 * dt;        // bubbles wobble
+      else if (p.kind === "confetti") { p.vy += 120 * dt; p.vx *= Math.max(0, 1 - 1.5 * dt); } // paper flutters down
     }
     tr.parts = tr.parts.filter((p) => p.life > 0);
   }
@@ -85,6 +116,9 @@
       case "stardust":  drawStreak(c, tr.pts.slice(-24), camX, "#ffffff", 0.16, 3); drawStars(c, tr.parts, camX, t); break;
       case "lightning": drawLightning(c, tr.pts, camX, t); drawSparks(c, tr.parts, camX); break;
       case "echo":      drawStreak(c, tr.pts.slice(-18), camX, skin.trail, 0.25, 4); drawEcho(c, tr.pts, camX, t, skin); break;
+      case "bubbles":   drawStreak(c, tr.pts.slice(-14), camX, "#9fe0ff", 0.18, 3); drawBubbles(c, tr.parts, camX); break;
+      case "confetti":  drawConfetti(c, tr.parts, camX, t); break;
+      case "hearts":    drawStreak(c, tr.pts.slice(-14), camX, "#ff8fb8", 0.2, 3); drawHearts(c, tr.parts, camX, t); break;
       default:          drawStreak(c, tr.pts.slice(-18), camX, skin.trail, 0.5, 6);     // classic
     }
   }
@@ -146,6 +180,53 @@
       const f = p.life / p.max, tw = 0.55 + 0.45 * Math.sin(t * p.tw + p.spin);
       c.globalAlpha = f * tw; c.fillStyle = p.col;
       sparkle(c, p.x - camX, p.y, p.r0 * (0.6 + 0.4 * f), p.spin + t * 2);
+    }
+    c.restore();
+  }
+
+  function drawBubbles(c, parts, camX) {
+    c.save(); c.lineWidth = 1.2;
+    for (const p of parts) {
+      if (p.kind !== "bubble") continue;
+      const f = p.life / p.max, r = p.r0 * (0.7 + 0.3 * (1 - f)), x = p.x - camX;
+      if (f < 0.12) {                                                  // pop: a ring flying apart
+        c.globalAlpha = f / 0.12 * 0.8; c.strokeStyle = "#e6f7ff";
+        c.beginPath(); c.arc(x, p.y, r * (1 + (0.12 - f) * 12), 0, TAU); c.stroke();
+        continue;
+      }
+      c.globalAlpha = 0.75 * Math.min(1, f * 3);
+      c.strokeStyle = "#bfe9ff"; c.fillStyle = "rgba(160,220,255,0.18)";
+      c.beginPath(); c.arc(x, p.y, r, 0, TAU); c.fill(); c.stroke();
+      c.fillStyle = "#ffffff"; c.beginPath(); c.arc(x - r * 0.35, p.y - r * 0.35, r * 0.28, 0, TAU); c.fill();   // glint
+    }
+    c.restore();
+  }
+  function drawConfetti(c, parts, camX, t) {
+    c.save();
+    for (const p of parts) {
+      if (p.kind !== "confetti") continue;
+      const f = p.life / p.max, flip = Math.abs(Math.cos(t * p.tw * 0.7 + p.spin));   // squashes as it tumbles
+      c.globalAlpha = Math.min(1, f * 2.5); c.fillStyle = p.col;
+      c.save(); c.translate(p.x - camX, p.y); c.rotate(p.spin + t * p.tw);
+      c.fillRect(-p.r0, -p.r0 * 0.6 * flip - 0.3, p.r0 * 2, p.r0 * 1.2 * flip + 0.6);
+      c.restore();
+    }
+    c.restore();
+  }
+  function heart(c, x, y, r) {
+    c.beginPath();
+    c.moveTo(x, y + r);
+    c.bezierCurveTo(x - r * 1.5, y - r * 0.2, x - r * 0.7, y - r * 1.3, x, y - r * 0.4);
+    c.bezierCurveTo(x + r * 0.7, y - r * 1.3, x + r * 1.5, y - r * 0.2, x, y + r);
+    c.closePath(); c.fill();
+  }
+  function drawHearts(c, parts, camX, t) {
+    c.save();
+    for (const p of parts) {
+      if (p.kind !== "heart") continue;
+      const f = p.life / p.max, r = p.r0 * (0.8 + 0.2 * Math.sin(t * p.tw + p.spin));   // a little heartbeat
+      c.globalAlpha = Math.min(1, f * 2.5) * 0.9; c.fillStyle = p.col;
+      heart(c, p.x - camX, p.y, r);
     }
     c.restore();
   }

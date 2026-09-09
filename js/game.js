@@ -20,6 +20,7 @@
   const THRUST = 2000;             // px/s²  (up, while held) -> net ±1000 (keeps tap-to-hover)
   const MAX_VY = 440;              // terminal vertical speed
   const SHIP_SCREEN_X = 260;       // where the ship settles on screen
+  const MINI = 0.6;                // a pink portal shrinks the ship (hitbox and all) to this scale
   const STORE_KEY = "shipdash.unlocked.v1";
   const SKIN_KEY = "shipdash.skin.v1";
   const COINS_KEY = "shipdash.coins.v1";
@@ -127,6 +128,10 @@
       if (s.x + s.w < x - half || s.x > x + half) continue;
       if (s.dir === "spinner") {   // treat the whole sweep as a wall on the hub's side
         if (s.cy < H / 2) top = Math.max(top, s.cy + s.r); else bot = Math.min(bot, s.cy - s.r);
+        continue;
+      }
+      if (s.dir === "block") {     // a block walls off whichever side it's nearer
+        if (s.y + s.h / 2 < H / 2) top = Math.max(top, s.y + s.h); else bot = Math.min(bot, s.y);
         continue;
       }
       const apex = spikeTri(s, t)[5];
@@ -285,6 +290,7 @@
     coinsGot: [],             // coins picked up in the current run (indices)
     fx: null,                 // active decoration-trigger effects (see defaultFx)
     grav: 1,                  // gravity direction: 1 = normal, -1 = flipped by a blue portal
+    size: 1,                  // ship scale: 1 = normal, MINI after a pink portal
     nextPortal: 0,            // index of the next portal the ship hasn't reached yet
   };
 
@@ -378,7 +384,7 @@
   }
 
   // ----- Ship skins ------------------------------------------------------
-  // 25 cosmetic ships (the collision hitbox is always the same circle).
+  // 27 cosmetic ships (the collision hitbox is always the same circle).
   // cost 0 = free from the start; others are bought with coins. The 10 fun
   // "kid" ships (kitty…unicorn) are the reward for clearing levels 1–20, and
   // the last five (duck…pirate) for the levels beyond the Event Horizon.
@@ -410,10 +416,13 @@
     { id: "bolt",    name: "Zap",       cost: 280, trail: "#ffe600", glow: "rgba(255,230,0,0.9)",    flame: "#fff9c4" },
     { id: "sub",     name: "Bubbles",   cost: 300, trail: "#7fd8ff", glow: "rgba(255,220,80,0.7)",   flame: "#bde9ff" },
     { id: "pirate",  name: "Corsair",   cost: 320, trail: "#d9935a", glow: "rgba(217,147,90,0.75)",  flame: "#ffd166" },
+    // --- the grand prizes: two 1000-coin ships on a row of their own (`final`) ---
+    { id: "dolphin",  name: "Dolphin",  cost: 1000, trail: "#8fe3ff", glow: "rgba(120,200,255,0.8)", flame: "#e0f7ff", final: true },
+    { id: "platypus", name: "Platypus", cost: 1000, trail: "#e8a05c", glow: "rgba(232,160,92,0.75)", flame: "#ffe0b0", final: true },
   ];
 
   // Coins earned the FIRST time each level is cleared (index = level).
-  // INVARIANT: sum(LEVEL_REWARD) === sum(ship costs) === 3315, so clearing every
+  // INVARIANT: sum(LEVEL_REWARD) === sum(ship costs) === 5315, so clearing every
   // level earns exactly enough to buy every ship. (Add a level -> add a reward;
   // add a ship -> keep total coins >= total cost. Harder later levels pay more.)
   // Trails are paid for by the temples, the map, secret coins and daily chests.
@@ -421,6 +430,7 @@
     15, 20, 25, 50, 40, 45, 50, 55, 60, 85,        // 1–10  (sum 445)
     90, 105, 115, 125, 140, 150, 165, 180, 195, 205, // 11–20 (sum 1470)
     220, 250, 280, 310, 340,                       // 21–25 (sum 1400)
+    360, 380, 400, 420, 440,                       // 26–30 (sum 2000) — the Dolphin and the Platypus
   ];
   (function checkEconomy() {
     let tr = 0;
@@ -894,14 +904,7 @@
         c.globalAlpha = 1;
         break;
       }
-      case "sub": { // submarine — porthole, periscope, spinning propeller, bubbles
-        c.shadowBlur = 0; c.fillStyle = "rgba(160,220,255,0.6)";                              // bubbles
-        for (let i = 0; i < 3; i++) {
-          const bt = (t * 1.3 + i * 0.33) % 1;
-          c.globalAlpha = 1 - bt;
-          c.beginPath(); c.arc(-18 - bt * 8 - i * 3, -2 - bt * 14, 1.2 + bt * 1.8, 0, 7); c.fill();
-        }
-        c.globalAlpha = 1;
+      case "sub": { // submarine — porthole, periscope, spinning propeller
         c.shadowColor = skin.glow; c.shadowBlur = 10;
         const g = c.createLinearGradient(0, -8, 0, 8);
         g.addColorStop(0, "#ffe66d"); g.addColorStop(1, "#e0a400");
@@ -935,6 +938,47 @@
         c.fillStyle = "#111"; c.beginPath(); c.moveTo(0, -16.5); c.lineTo(-8, -14.5); c.lineTo(0, -12.5); c.closePath(); c.fill(); // flag
         c.fillStyle = "#fff"; c.beginPath(); c.arc(-4, -14.5, 1.1, 0, 7); c.fill();           // skull
         c.fillStyle = "#ffe14a"; c.beginPath(); c.moveTo(16, 2); c.lineTo(19.5, -1.5); c.lineTo(17.5, 3); c.closePath(); c.fill(); // bow figure
+        break;
+      }
+      case "dolphin": { // dolphin — sleek grey-blue body, dorsal fin, flukes, a smile
+        c.shadowColor = skin.glow; c.shadowBlur = 10;
+        c.fillStyle = "#6f9fc4"; c.strokeStyle = "#d6ecfb"; c.lineWidth = 1.1;
+        c.beginPath(); c.moveTo(-12, 0); c.lineTo(-20, -8); c.lineTo(-17, 0); c.lineTo(-20, 8); c.closePath(); c.fill(); c.stroke(); // flukes
+        c.beginPath(); c.moveTo(-3, -6); c.quadraticCurveTo(0, -15, 6, -7); c.closePath(); c.fill(); c.stroke();               // dorsal fin
+        const g = c.createLinearGradient(0, -8, 0, 8);
+        g.addColorStop(0, "#8fc0e6"); g.addColorStop(0.55, "#b9dcf2"); g.addColorStop(1, "#eef8ff");
+        c.fillStyle = g; c.strokeStyle = "#e6f4ff"; c.lineWidth = 1.2;
+        c.beginPath();
+        c.moveTo(-14, 0);
+        c.quadraticCurveTo(-6, -9, 6, -7);
+        c.quadraticCurveTo(14, -5, 19, -1);                                                  // rostrum
+        c.quadraticCurveTo(14, 4, 6, 6);
+        c.quadraticCurveTo(-6, 9, -14, 0);
+        c.closePath(); c.fill(); c.stroke();
+        c.shadowBlur = 0;
+        c.fillStyle = "#6f9fc4"; c.beginPath(); c.moveTo(1, 4); c.quadraticCurveTo(-4, 11, -8, 8); c.quadraticCurveTo(-4, 5, 1, 4); c.fill(); // flipper
+        c.strokeStyle = "#3d6a8f"; c.lineWidth = 1.2; c.lineCap = "round";
+        c.beginPath(); c.moveTo(10, 2); c.quadraticCurveTo(15, 3, 18, 0); c.stroke();          // smile
+        c.fillStyle = "#0a1622"; c.beginPath(); c.arc(9, -2.5, 1.7, 0, 7); c.fill();           // eye
+        c.fillStyle = "#fff"; c.beginPath(); c.arc(9.6, -3.1, 0.6, 0, 7); c.fill();
+        break;
+      }
+      case "platypus": { // platypus — brown body, duck bill, paddle tail, webbed feet
+        c.shadowColor = skin.glow; c.shadowBlur = 10;
+        c.fillStyle = "#4e2f18"; c.strokeStyle = "#8a5a32"; c.lineWidth = 1.1;
+        c.beginPath(); c.ellipse(-16, 1, 7, 4.5, 0, 0, 7); c.fill(); c.stroke();               // paddle tail
+        const g = c.createLinearGradient(0, -9, 0, 9);
+        g.addColorStop(0, "#a8733f"); g.addColorStop(1, "#6b4423");
+        c.fillStyle = g; c.strokeStyle = "#d9a06a"; c.lineWidth = 1.2;
+        c.beginPath(); c.ellipse(-2, 0, 13, 8, 0, 0, 7); c.fill(); c.stroke();                  // body
+        c.shadowBlur = 0;
+        c.fillStyle = "#e8a05c"; c.strokeStyle = "#b8743a"; c.lineWidth = 1;
+        for (const fx of [-7, 2]) { c.beginPath(); c.ellipse(fx, 8, 4, 2.2, 0, 0, 7); c.fill(); c.stroke(); } // webbed feet
+        roundRectPath(c, 8, -4, 13, 7, 3.5); c.fill(); c.stroke();                             // bill
+        c.strokeStyle = "#b8743a"; c.beginPath(); c.moveTo(9, -0.5); c.lineTo(20, -0.5); c.stroke();
+        c.fillStyle = "#b8743a"; c.beginPath(); c.arc(17, -2.5, 0.7, 0, 7); c.fill();          // nostril
+        c.fillStyle = "#1a1a1a"; c.beginPath(); c.arc(5, -3.5, 1.6, 0, 7); c.fill();           // eye
+        c.fillStyle = "#fff"; c.beginPath(); c.arc(5.6, -4.1, 0.6, 0, 7); c.fill();
         break;
       }
       default: { // "dart"
@@ -1055,6 +1099,35 @@
       distSegSq(cx, cy, t[4], t[5], t[0], t[1]) <= r2
     );
   }
+  // Does a ship circle at (cx, cy) hit obstacle s at level-time t? BLOCKS
+  // ({ x, y, w, h, dir: "block" }, levels 27+) are rectangles you fly around;
+  // everything else is a spike triangle.
+  function hitsObstacle(s, cx, cy, r, t) {
+    if (s.dir === "block") {
+      const qx = clamp(cx, s.x, s.x + s.w), qy = clamp(cy, s.y, s.y + s.h);
+      return (cx - qx) * (cx - qx) + (cy - qy) * (cy - qy) <= r * r;
+    }
+    return circleHitsTri(cx, cy, r, spikeTri(s, t));
+  }
+  // WIND ZONES (levels 26+): { x0, x1, wind } pushes the ship with `wind`
+  // px/s² while it's inside (negative = an updraft, positive = a downdraft).
+  function windAt(lvl, x) {
+    for (const z of lvl.zones || []) if (x >= z.x0 && x <= z.x1) return z.wind;
+    return 0;
+  }
+  // One frame of vertical physics — shared with the headless solver, so
+  // "verified beatable" means exactly this. Returns [y, vy].
+  function stepShip(y, vy, held, grav, wind, size, dt) {
+    vy += (GRAVITY * grav + wind) * dt;     // a blue portal flips the sign of gravity AND thrust
+    if (held) vy -= THRUST * grav * dt;
+    if (vy > MAX_VY) vy = MAX_VY;
+    if (vy < -MAX_VY) vy = -MAX_VY;
+    y += vy * dt;
+    const r = SHIP_R * size;                // touching the edges is safe, it just stops you
+    if (y < CEIL + r) { y = CEIL + r; if (vy < 0) vy = 0; }
+    if (y > FLOOR - r) { y = FLOOR - r; if (vy > 0) vy = 0; }
+    return [y, vy];
+  }
 
   // ----- Scene control ---------------------------------------------------
   function hideAllOverlays() {
@@ -1091,6 +1164,7 @@
     state.checkpoint = null;
     state.cpTimer = 0;
     state.grav = 1;
+    state.size = 1;
     state.nextPortal = 0;
     state.assisted = assistActive();
     if (state.race) resetRaceBot();
@@ -1129,7 +1203,7 @@
     practiceBtn.classList.toggle("mode-on", state.modes.practice);
   }
   function setCheckpoint() {
-    state.checkpoint = { shipX: state.shipX, y: state.y, vy: state.vy, elapsed: state.elapsed, grav: state.grav, nextPortal: state.nextPortal,
+    state.checkpoint = { shipX: state.shipX, y: state.y, vy: state.vy, elapsed: state.elapsed, grav: state.grav, size: state.size, nextPortal: state.nextPortal,
       coinsGot: state.coinsGot.slice(), fx: JSON.parse(JSON.stringify(state.fx)) };
     state.cpTimer = 0;
   }
@@ -1137,7 +1211,7 @@
     const c = state.checkpoint;
     state.scene = "play";
     state.shipX = c.shipX; state.y = c.y; state.vy = c.vy; state.elapsed = c.elapsed;
-    state.grav = c.grav || 1; state.nextPortal = c.nextPortal | 0;
+    state.grav = c.grav || 1; state.size = c.size || 1; state.nextPortal = c.nextPortal | 0;
     state.coinsGot = c.coinsGot.slice(); state.fx = JSON.parse(JSON.stringify(c.fx));
     state.camX = Math.max(0, state.shipX - SHIP_SCREEN_X);
     state.held = false; state.trail = TRAILS.make(); state.particles = []; state.crashTimer = 0; state.cpTimer = 0;
@@ -1456,16 +1530,9 @@
     state.elapsed += dt;
     const lvl = currentLevel();
 
-    // vertical physics (a blue portal flips the sign of gravity AND thrust)
-    state.vy += GRAVITY * state.grav * dt;
-    if (state.held) state.vy -= THRUST * state.grav * dt;
-    if (state.vy > MAX_VY) state.vy = MAX_VY;
-    if (state.vy < -MAX_VY) state.vy = -MAX_VY;
-    state.y += state.vy * dt;
-
-    // clamp to play area (touching edges is safe, just stops you)
-    if (state.y < CEIL + SHIP_R) { state.y = CEIL + SHIP_R; if (state.vy < 0) state.vy = 0; }
-    if (state.y > FLOOR - SHIP_R) { state.y = FLOOR - SHIP_R; if (state.vy > 0) state.vy = 0; }
+    // vertical physics (see stepShip): gravity, thrust, any wind zone here, walls
+    const st = stepShip(state.y, state.vy, state.held, state.grav, windAt(lvl, state.shipX), state.size, dt);
+    state.y = st[0]; state.vy = st[1];
 
     // horizontal scroll (decoration SPEED triggers scale it)
     state.shipX += lvl.speed * state.fx.speedMul * dt;
@@ -1491,10 +1558,11 @@
       if (state.cpTimer >= 1.5) setCheckpoint();   // auto checkpoint (C also drops one)
     }
 
-    // collision with spikes (only those near the ship) — Noclip flies straight through
+    // collision with obstacles (only those near the ship) — Noclip flies straight through
+    const hitR = COLLIDE_R * state.size;
     if (!noclip) for (const s of lvl.obstacles) {
       if (s.x + s.w < state.shipX - SHIP_R || s.x > state.shipX + SHIP_R) continue;
-      if (circleHitsTri(state.shipX, state.y, COLLIDE_R, spikeTri(s, state.elapsed))) { crash(); return; }
+      if (hitsObstacle(s, state.shipX, state.y, hitR, state.elapsed)) { crash(); return; }
     }
 
     // secret coins
@@ -1521,26 +1589,30 @@
     if (state.shipX >= lvl.length) complete();
   }
 
-  // ----- Gravity portals -------------------------------------------------
-  // Blue (g = -1) flips gravity so the ship falls up; gold (g = 1) restores it.
-  // Portals span the full height, so passing one is guaranteed.
-  const PORTAL_COL = { "-1": "#4f8cff", "1": "#ffd23a" };
+  // ----- Portals ---------------------------------------------------------
+  // Gravity: blue (g = -1) flips gravity so the ship falls up; gold (g = 1)
+  // restores it. Size (levels 28+): pink (size = MINI) shrinks the ship,
+  // green (size = 1) grows it back. Portals span the full height, so
+  // passing one is guaranteed.
+  const PORTAL_COL = { "-1": "#4f8cff", "1": "#ffd23a", mini: "#ff5bd0", grow: "#6bff8a" };
+  function portalCol(p) { return p.size != null ? PORTAL_COL[p.size < 1 ? "mini" : "grow"] : PORTAL_COL[String(p.g)]; }
+  function portalLabel(p) { return p.size != null ? (p.size < 1 ? "MINI" : "GROW") : (p.g < 0 ? "FLIP" : "NORMAL"); }
   function passPortal(p) {
-    if (p.g === state.grav) return;
-    state.grav = p.g;
-    const col = PORTAL_COL[String(p.g)];
+    if (p.size != null) { if (p.size === state.size) return; state.size = p.size; }
+    else { if (p.g === state.grav) return; state.grav = p.g; }
+    const col = portalCol(p), rising = p.size != null ? p.size < 1 : p.g < 0;
     for (let k = 0; k < 24; k++) {
       const a = Math.random() * Math.PI * 2, sp = 80 + Math.random() * 220;
       state.particles.push({ x: state.shipX, y: state.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35 + Math.random() * 0.4, max: 0.75, col, r: 2 + Math.random() * 3, float: true });
     }
-    tone(p.g < 0 ? 520 : 390, 0, 0.14, "triangle", 0.14);
-    tone(p.g < 0 ? 780 : 560, 0.06, 0.18, "triangle", 0.12);
+    tone(rising ? 520 : 390, 0, 0.14, "triangle", 0.14);
+    tone(rising ? 780 : 560, 0.06, 0.18, "triangle", 0.12);
   }
   function drawPortals(lvl, camX) {
     for (const p of lvl.portals || []) {
       const sx = p.x - camX;
       if (!isFinite(sx) || sx < -60 || sx > W + 60) continue;   // never let one bad item wedge the loop
-      const flip = p.g < 0, col = PORTAL_COL[String(p.g)];
+      const flip = p.size != null ? p.size < 1 : p.g < 0, col = portalCol(p);   // arrows point the way you'll fall / shrink
       ctx.save();
       const g = ctx.createLinearGradient(sx - 30, 0, sx + 30, 0);   // glowing column
       g.addColorStop(0, rgba(col, 0)); g.addColorStop(0.5, rgba(col, 0.2)); g.addColorStop(1, rgba(col, 0));
@@ -1560,7 +1632,7 @@
         ctx.closePath(); ctx.fill();
       }
       ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = rgba(col, 0.95);
-      ctx.fillText(flip ? "FLIP" : "NORMAL", sx, 10);
+      ctx.fillText(portalLabel(p), sx, 10);
       ctx.textAlign = "left";
       ctx.restore();
     }
@@ -1679,6 +1751,7 @@
       if (state.scene === "play") drawPauseButton();
     } else if (inGame) {
       const lvl = currentLevel();
+      drawZones(lvl, camX);
       drawPortals(lvl, camX);
       drawSpikes(lvl, camX);
       drawFinish(lvl, camX);
@@ -1823,6 +1896,7 @@
     for (const s of obstacles) {
       const sx = s.x - camX;
       if (!isFinite(sx) || sx + s.w < -20 || sx > W + 20) continue;   // skip a malformed obstacle, don't throw
+      if (s.dir === "block") { drawBlock(s, camX); continue; }
       const gate = s.dir === "gateTop" || s.dir === "gateBottom";
       const piston = s.dir === "launching" || s.dir === "falling";
       const tri = spikeTri(s, t);
@@ -1872,6 +1946,62 @@
       ctx.shadowBlur = 10;
       ctx.stroke();
       ctx.shadowBlur = 0;
+    }
+  }
+
+  // A block: a glowing crate you fly over or under, never through.
+  function drawBlock(s, camX) {
+    const x = s.x - camX, y = s.y;
+    ctx.save();
+    const g = ctx.createLinearGradient(x, y, x, y + s.h);
+    g.addColorStop(0, "rgba(150,190,255,0.30)"); g.addColorStop(1, "rgba(50,80,150,0.30)");
+    ctx.fillStyle = g; ctx.fillRect(x, y, s.w, s.h);
+    ctx.strokeStyle = "rgba(235,242,255,0.95)"; ctx.lineWidth = 2;
+    ctx.shadowColor = "rgba(120,180,255,0.7)"; ctx.shadowBlur = 12;
+    ctx.strokeRect(x + 1, y + 1, s.w - 2, s.h - 2);
+    ctx.shadowBlur = 0;
+    const inset = Math.min(8, s.w / 4, s.h / 4);                       // inner frame
+    ctx.strokeStyle = "rgba(235,242,255,0.35)"; ctx.lineWidth = 1;
+    ctx.strokeRect(x + inset, y + inset, s.w - 2 * inset, s.h - 2 * inset);
+    ctx.restore();
+  }
+
+  // integer hash -> 0..1 (stable per index, so wind motes don't jitter)
+  function hash01(n) {
+    n = Math.imul(n ^ (n >>> 15), 0x2c1b3c6d);
+    n = Math.imul(n ^ (n >>> 12), 0x297a2d39);
+    return ((n ^ (n >>> 15)) >>> 0) / 4294967296;
+  }
+  // Wind zones: a tinted band with streaming motes — cyan rising for an
+  // updraft, amber sinking for a downdraft — and dashed edges.
+  function drawZones(lvl, camX) {
+    for (const z of lvl.zones || []) {
+      const x0 = z.x0 - camX, x1 = z.x1 - camX;
+      if (!isFinite(x0) || x1 < -20 || x0 > W + 20) continue;
+      const up = z.wind < 0, col = up ? "#46e6ff" : "#ffb84a";
+      ctx.save();
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, rgba(col, up ? 0.16 : 0.03)); g.addColorStop(1, rgba(col, up ? 0.03 : 0.16));
+      ctx.fillStyle = g; ctx.fillRect(x0, 0, x1 - x0, H);
+      ctx.strokeStyle = rgba(col, 0.4); ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+      ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0, H); ctx.moveTo(x1, 0); ctx.lineTo(x1, H); ctx.stroke();
+      ctx.setLineDash([]);
+      const n = Math.min(70, Math.floor((z.x1 - z.x0) / 12)), sp = Math.abs(z.wind) * 0.35;
+      ctx.strokeStyle = rgba(col, 0.55); ctx.lineWidth = 1.5; ctx.lineCap = "round";
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const h1 = hash01(i * 7 + 1), h2 = hash01(i * 13 + 5);
+        const x = z.x0 + h1 * (z.x1 - z.x0) - camX;
+        if (x < -10 || x > W + 10) continue;
+        let y = (h2 * H + (up ? -1 : 1) * globalTime * sp * (0.6 + h2 * 0.8)) % H;
+        if (y < 0) y += H;
+        const len = 10 + h1 * 16;
+        ctx.moveTo(x, y); ctx.lineTo(x, y + (up ? len : -len));
+      }
+      ctx.stroke();
+      ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.fillStyle = rgba(col, 0.95);
+      ctx.fillText(up ? "▲ UPDRAFT" : "▼ DOWNDRAFT", Math.max(x0, 0) + 8, 10);
+      ctx.restore();
     }
   }
 
@@ -1931,7 +2061,7 @@
     const angle = Math.max(-0.45, Math.min(0.45, state.vy / MAX_VY * 0.5));
     ctx.save();
     ctx.translate(sx, state.y);
-    ctx.scale(1, state.grav);        // flipped gravity: the ship flies upside down
+    ctx.scale(state.size, state.grav * state.size);   // flipped gravity: the ship flies upside down; mini: it's tiny
     ctx.rotate(angle * state.grav);  // ...but still noses toward where it's heading
     paintShip(ctx, SKINS[state.skin] || SKINS[0], state.held, globalTime);
     ctx.restore();
@@ -2021,9 +2151,10 @@
       ctx.fillText((n > 1 ? `${got}/${n} ` : "") + "💠", pad + ctx.measureText(label).width + 12, 40);
       ctx.globalAlpha = 1;
     }
-    if (state.grav < 0) {                   // gravity flipped by a blue portal
-      ctx.textAlign = "center"; ctx.fillStyle = "#7fb0ff"; ctx.font = "bold 12px system-ui, sans-serif";
-      ctx.fillText("▲ GRAVITY FLIPPED ▲", W / 2, 34);
+    if (state.grav < 0 || state.size < 1) {  // gravity flipped by a blue portal / shrunk by a pink one
+      ctx.textAlign = "center"; ctx.font = "bold 12px system-ui, sans-serif";
+      if (state.grav < 0) { ctx.fillStyle = "#7fb0ff"; ctx.fillText("▲ GRAVITY FLIPPED ▲", W / 2, 34); }
+      if (state.size < 1) { ctx.fillStyle = "#ff8fe0"; ctx.fillText("◦ MINI SHIP ◦", W / 2, state.grav < 0 ? 50 : 34); }
       ctx.textAlign = "left";
     }
     if (state.race && state.race.toast > 0) {
@@ -2572,6 +2703,9 @@
     updateCoinDisplays();
     skinGridEl.innerHTML = "";
     SKINS.forEach((skin, i) => {
+      if (skin.final && !(SKINS[i - 1] && SKINS[i - 1].final)) {   // the grand prizes sit alone on the last row
+        const br = document.createElement("div"); br.className = "skin-break"; skinGridEl.appendChild(br);
+      }
       const owned = isOwned(i);
       const equipped = i === state.skin;
       const buyable = !owned && state.coins >= skin.cost;
@@ -2678,7 +2812,10 @@
   //   { kind:"piston",  dir:"launching"|"falling",   x, w, len, period }
   //   { kind:"gate",                                 x, w, gap, amp, center, period }
   //   { kind:"spinner",                              x, y (hub), r, period, blades, spin }
-  //   { kind:"portal",                               x, g (-1 flips gravity, 1 restores) }
+  //   { kind:"portal",                               x, g (-1 flips gravity, 1 restores)
+  //                                                     OR size (MINI shrinks the ship, 1 grows it back) }
+  //   { kind:"block",                                x, y, w, h }
+  //   { kind:"wind",    dir:"up"|"down",             x, w, force }   a zone `w` wide pushing `force` px/s²
   //   plus decoration triggers and secret coins, which aren't obstacles.
   // Everything autosaves to localStorage as you edit.
 
@@ -2688,7 +2825,8 @@
   // "fair telegraph" phasing as the built-in levels: pistons are fully
   // extended and gate holes centered exactly as the ship arrives.
   function expandItem(it, speed) {
-    if (it.kind === "trigger" || it.kind === "coin" || it.kind === "portal") return [];   // not obstacles
+    if (it.kind === "trigger" || it.kind === "coin" || it.kind === "portal" || it.kind === "wind") return [];   // not obstacles
+    if (it.kind === "block") return [{ x: it.x, y: it.y, w: it.w, h: it.h, dir: "block" }];
     if (it.kind === "spinner") {
       // wall hubs: blade buried in the wall as the ship arrives (fair when the spin
       // matches the wall — ceiling counter-clockwise, floor clockwise; the default).
@@ -2712,6 +2850,9 @@
     ];
   }
 
+  // a wind item -> the game's zone shape (see windAt)
+  function windZone(it) { return { x0: it.x, x1: it.x + it.w, wind: it.dir === "up" ? -it.force : it.force }; }
+
   // same shape levels.js builds (x/w = the sweep's footprint for culling + prefilters)
   function spinner(cx, cy, r, period, phase, ccw) {
     return { x: cx - r, w: 2 * r, dir: "spinner", cx, cy, r, bw: 28, period, phase, ccw: !!ccw };
@@ -2722,7 +2863,9 @@
     for (const it of src.items) obstacles.push(...expandItem(it, CUSTOM_SPEED));
     obstacles.sort((a, b) => a.x - b.x);
     const triggers = src.items.filter((it) => it.kind === "trigger").map((it) => Object.assign({}, it)).sort((a, b) => a.x - b.x);
-    const portals = src.items.filter((it) => it.kind === "portal").map((it) => ({ x: it.x, g: it.g < 0 ? -1 : 1 })).sort((a, b) => a.x - b.x);
+    const portals = src.items.filter((it) => it.kind === "portal")
+      .map((it) => (it.size != null ? { x: it.x, size: it.size < 1 ? MINI : 1 } : { x: it.x, g: it.g < 0 ? -1 : 1 })).sort((a, b) => a.x - b.x);
+    const zones = src.items.filter((it) => it.kind === "wind").map(windZone).sort((a, b) => a.x0 - b.x0);
     return {
       name: src.name || "Untitled",
       subtitle: "Custom level",
@@ -2733,6 +2876,7 @@
       obstacles,
       triggers,
       portals,
+      zones,
       coins: src.items.filter((it) => it.kind === "coin").map((it) => ({ x: it.x, y: it.y })),
     };
   }
@@ -2838,8 +2982,12 @@
     coin: { w: 24 },
     spinner: { w: 0, r: 110, period: 2.2, blades: 2, spin: "cw" },   // w: 0 — x is the hub center
     portal: { w: 36 },
+    block: { w: 90, h: 120 },
+    wind: { w: 600, force: 500 },
   };
-  const ED_TITLES = { spike: "STATIC SPIKE", piston: "PISTON", gate: "GATE", coin: "SECRET COIN", spinner: "SPINNER", portal: "PORTAL" };
+  const ED_TITLES = { spike: "STATIC SPIKE", piston: "PISTON", gate: "GATE", coin: "SECRET COIN", spinner: "SPINNER", portal: "PORTAL", block: "BLOCK", wind: "WIND ZONE" };
+  // width slider range per kind: [min, max, step]
+  const ED_W_RANGE = { spike: [16, 220, 2], block: [20, 400, 5], wind: [200, 2000, 50] };
   const ED_DIRS = { bottom: "FLOOR", top: "CEILING", launching: "UP", falling: "DOWN" };
   // which property rows a trigger type shows
   const TRIG_PROPS = {
@@ -2850,8 +2998,8 @@
   // property rows: which control edits which field, for which item kinds
   // (kinds may be a function of the item for triggers)
   const ED_ROWS = [
-    { id: "W",   el: "sldW",   prop: "w",      kinds: { spike: 1, piston: 1, gate: 1 }, fmt: (v) => v + "px" },
-    { id: "H",   el: "sldH",   prop: "h",      kinds: { spike: 1 },                     fmt: (v) => v + "px" },
+    { id: "W",   el: "sldW",   prop: "w",      kinds: { spike: 1, piston: 1, gate: 1, block: 1, wind: 1 }, fmt: (v) => v + "px" },
+    { id: "H",   el: "sldH",   prop: "h",      kinds: { spike: 1, block: 1 },           fmt: (v) => v + "px" },
     { id: "Len", el: "sldLen", prop: "len",    kinds: { piston: 1 },                    fmt: (v) => v + "px" },
     { id: "Gap", el: "sldGap", prop: "gap",    kinds: { gate: 1 },                      fmt: (v) => v * 2 + "px" },
     { id: "Amp", el: "sldAmp", prop: "amp",    kinds: { gate: 1 },                      fmt: (v) => v + "px" },
@@ -2859,7 +3007,10 @@
     { id: "R",   el: "sldR",   prop: "r",      kinds: { spinner: 1 },                    fmt: (v) => v + "px" },
     { id: "Blades", el: "selBlades", prop: "blades", kinds: { spinner: 1 },              fmt: () => "" },
     { id: "Spin", el: "selSpin", prop: "spin", kinds: { spinner: 1 }, text: true,        fmt: () => "" },
-    { id: "G",   el: "selG",   prop: "g",      kinds: { portal: 1 },                     fmt: () => "" },
+    { id: "G",   el: "selG",   prop: "g",      kinds: { portal: 1 }, when: (it) => it.size == null, fmt: () => "" },
+    { id: "Size", el: "selSize", prop: "size", kinds: { portal: 1 }, when: (it) => it.size != null, fmt: () => "" },
+    { id: "Wind", el: "selWind", prop: "dir",  kinds: { wind: 1 }, text: true,           fmt: () => "" },
+    { id: "Force", el: "sldForce", prop: "force", kinds: { wind: 1 },                    fmt: (v) => v + " px/s²" },
     { id: "Str", el: "sldStr", prop: "str",    kinds: {}, trig: true, fmt: (v) => String(v) },
     { id: "Dur", el: "sldDur", prop: "dur",    kinds: {}, trig: true, fmt: (v) => v.toFixed(1) + "s" },
     { id: "Spd", el: "sldSpd", prop: "spd",    kinds: {}, trig: true, fmt: (v) => v.toFixed(1) + "×" },
@@ -2874,7 +3025,7 @@
   }
   function rowApplies(r, it) {
     if (it.kind === "trigger") return !!r.trig && TRIG_PROPS[it.type].includes(r.prop);
-    return !!r.kinds[it.kind];
+    return !!r.kinds[it.kind] && (!r.when || r.when(it));
   }
 
   function openEditor(id) {
@@ -2970,14 +3121,18 @@
     if (!it) return hideProps();
     edUI.propsTitle.textContent = it.kind === "trigger"
       ? TRIGGER_INFO[it.type].icon + " " + TRIGGER_INFO[it.type].name
-      : it.kind === "portal" ? "PORTAL · " + (it.g < 0 ? "FLIP" : "GOLD")
+      : it.kind === "portal" ? "PORTAL · " + (it.size != null ? (it.size < 1 ? "MINI" : "GROW") : it.g < 0 ? "FLIP" : "GOLD")
       : it.kind === "spinner" ? "SPINNER · " + (it.y <= 0 ? "CEILING" : it.y >= H ? "FLOOR" : "FLOATING")
+      : it.kind === "wind" ? "WIND · " + (it.dir === "up" ? "UPDRAFT" : "DOWNDRAFT")
       : ED_TITLES[it.kind] + (it.dir ? " · " + ED_DIRS[it.dir] : "");
     for (const r of ED_ROWS) {
       const on = rowApplies(r, it);
       r.row.classList.toggle("hidden", !on);
       if (on) {
-        if (r.prop === "w") r.sld.min = it.kind === "spike" ? 16 : 30;
+        if (r.prop === "w") {
+          const lim = ED_W_RANGE[it.kind] || [30, 220, 2];
+          r.sld.min = lim[0]; r.sld.max = lim[1]; r.sld.step = lim[2];
+        }
         r.sld.value = it[r.prop];
         if (r.val) r.val.textContent = r.fmt(r.text ? it[r.prop] : +it[r.prop]);
       }
@@ -3015,6 +3170,21 @@
     if (tool === "flip" || tool === "gold") {
       return { kind: "portal", w: 36, x: clampItemX(snap10(wx), 0), g: tool === "flip" ? -1 : 1 };
     }
+    if (tool === "mini" || tool === "grow") {
+      return { kind: "portal", w: 36, x: clampItemX(snap10(wx), 0), size: tool === "mini" ? MINI : 1 };
+    }
+    if (tool === "block") {                 // centered on the pointer, kept inside the play area
+      const it = Object.assign({ kind: "block" }, ED_DEFAULTS.block, ED.mem.block || {});
+      it.x = clampItemX(snap10(wx - it.w / 2), it.w);
+      it.y = Math.round(clamp(wy - it.h / 2, 0, H - it.h));
+      return it;
+    }
+    if (tool === "updraft" || tool === "downdraft") {
+      const it = Object.assign({ kind: "wind" }, ED_DEFAULTS.wind, ED.mem.wind || {});
+      it.dir = tool === "updraft" ? "up" : "down";   // the button picks the direction (change it in the panel)
+      it.x = clampItemX(snap10(wx), it.w);
+      return it;
+    }
     if (tool === "spinner") {
       const it = Object.assign({ kind: "spinner" }, ED_DEFAULTS.spinner, ED.mem.spinner || {});
       it.x = clampItemX(snap10(wx), 0);
@@ -3050,6 +3220,8 @@
     if (it.kind === "trigger") return { x: it.x - 14, y: 96, w: 28, h: 56 };  // the flag near the top
     if (it.kind === "coin") return { x: it.x - 14, y: it.y - 14, w: 28, h: 28 };
     if (it.kind === "portal") return { x: it.x - 18, y: 14, w: 36, h: H - 28 };   // the capsule
+    if (it.kind === "block") return { x: it.x, y: it.y, w: it.w, h: it.h };
+    if (it.kind === "wind") return { x: it.x, y: 0, w: Math.min(it.w, 96), h: 22 }; // the label tab, so spikes inside stay clickable
     if (it.kind === "spinner") {                                                 // the sweep circle's box, clipped
       const y0 = Math.max(0, it.y - it.r), y1 = Math.min(H, it.y + it.r);
       return { x: it.x - it.r, y: y0, w: 2 * it.r, h: y1 - y0 };
@@ -3106,7 +3278,7 @@
 
   // items that can be dragged vertically remember where they were grabbed
   function dragOffsetY(it, wy) {
-    return it.kind === "gate" ? wy - it.center : (it.kind === "coin" || it.kind === "spinner") ? wy - it.y : 0;
+    return it.kind === "gate" ? wy - it.center : (it.kind === "coin" || it.kind === "spinner" || it.kind === "block") ? wy - it.y : 0;
   }
 
   function edPointerMove(e) {
@@ -3129,6 +3301,9 @@
       if (nc !== it.center) { it.center = nc; edChanged(); }
     } else if (it.kind === "coin") {
       const ny = Math.round(clamp(p.y - d.dcy, 30, H - 30));
+      if (ny !== it.y) { it.y = ny; edChanged(); }
+    } else if (it.kind === "block") {
+      const ny = Math.round(clamp(p.y - d.dcy, 0, H - it.h));
       if (ny !== it.y) { it.y = ny; edChanged(); }
     } else if (it.kind === "spinner") {
       const ny = snapHubY(p.y - d.dcy);
@@ -3210,6 +3385,7 @@
 
     // obstacles and portals — animated exactly as they'll move in play
     if (!ED.built) ED.built = buildCustomLevel(lvl);
+    drawZones(ED.built, camX);
     drawPortals(ED.built, camX);
     drawObstacles(ED.built.obstacles, camX, globalTime);
     // decoration triggers: a flag on a dashed line
@@ -3227,6 +3403,7 @@
         if (ghost.kind === "trigger") drawTriggerMarker(ghost, camX);
         else if (ghost.kind === "coin") drawCoin(ghost.x - camX, ghost.y, globalTime, false);
         else if (ghost.kind === "portal") drawPortals({ portals: [ghost] }, camX);
+        else if (ghost.kind === "wind") drawZones({ zones: [windZone(ghost)] }, camX);
         else drawObstacles(expandItem(ghost, CUSTOM_SPEED), camX, globalTime);
         ctx.globalAlpha = 1;
       }
@@ -3512,7 +3689,8 @@
 
   // ----- Boot ------------------------------------------------------------
   // tiny hook for headless checks (console / test harness) — no gameplay use
-  window.__shipdash = { levelCoins, freeGapAt, ALL_PACKS, state, startLevel, render, goSkins, SKINS, TRAILS };
+  window.__shipdash = { levelCoins, freeGapAt, ALL_PACKS, state, startLevel, render, goSkins, SKINS, TRAILS,
+    stepShip, hitsObstacle, windAt, spikeTri, LEVEL_REWARD, COLLIDE_R, SHIP_R, COIN_R, MINI };
   applyControlHints();
   if (!isOwned(state.skin)) state.skin = 0; // never start equipped on a ship you don't own
   goHome();

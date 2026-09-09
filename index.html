@@ -6,7 +6,7 @@
   <title>Ship Dash</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>" />
   <!-- ?v= busts stale caches — bump it (today's date works) whenever css/ or js/ change -->
-  <link rel="stylesheet" href="css/style.css?v=20260908e" />
+  <link rel="stylesheet" href="css/style.css?v=20260909" />
 </head>
 <body>
   <div id="stage">
@@ -83,7 +83,7 @@
         <span id="edSaved" class="ed-saved">SAVED ✓</span>
         <button id="edTest" class="btn btn-sm">▶&nbsp;Test</button>
       </div>
-      <div class="ed-hint">Click to place · drag to move · drag the knob (or scroll) to pan · drag gates up &amp; down</div>
+      <div class="ed-hint">Click to place · drag to move · drag the knob (or scroll) to pan · drag gates, blocks &amp; spinners up &amp; down</div>
       <div class="ed-bar ed-palette">
         <button class="ed-tool" data-tool="select" title="Select and move spikes"><span class="sel-ic"></span>Select</button>
         <button class="ed-tool" data-tool="bottom" title="Static spike on the floor"><span class="tri tri-up"></span>Floor</button>
@@ -94,6 +94,11 @@
         <button class="ed-tool" data-tool="spinner" title="Spinning blade. Drop it on a wall to hide the blade half the time, or float it with two blades"><span class="spin-ic"></span>Spinner</button>
         <button class="ed-tool" data-tool="flip" title="Blue portal: flips gravity so the ship falls UP"><span class="portal-ic blue"></span>Flip Portal</button>
         <button class="ed-tool" data-tool="gold" title="Gold portal: gravity back to normal"><span class="portal-ic gold"></span>Gold Portal</button>
+        <button class="ed-tool" data-tool="block" title="A block: fly over or under it, never through. Drag it anywhere"><span class="block-ic"></span>Block</button>
+        <button class="ed-tool" data-tool="updraft" title="Wind zone that pushes the ship UP while it's inside"><span class="wind-ic up"></span>Updraft</button>
+        <button class="ed-tool" data-tool="downdraft" title="Wind zone that pushes the ship DOWN while it's inside"><span class="wind-ic down"></span>Downdraft</button>
+        <button class="ed-tool" data-tool="mini" title="Pink portal: shrinks the ship so it fits through tiny gaps"><span class="portal-ic pink"></span>Mini Portal</button>
+        <button class="ed-tool" data-tool="grow" title="Green portal: grows the ship back to full size"><span class="portal-ic green"></span>Grow Portal</button>
         <button class="ed-tool" data-tool="coin" title="A secret coin to find (drag it anywhere)"><span class="coin-ic"></span>Secret Coin</button>
       </div>
       <div id="edDiffPick" class="ed-diffpick hidden"></div>
@@ -124,6 +129,9 @@
         <label class="ed-row" id="rowBlades">Blades<select id="selBlades" class="ed-input ed-select"><option value="1">One</option><option value="2">Two</option></select><span class="ed-val" id="valBlades"></span></label>
         <label class="ed-row" id="rowSpin">Spin<select id="selSpin" class="ed-input ed-select"><option value="cw">Clockwise ⟳</option><option value="ccw">Counter ⟲</option></select><span class="ed-val" id="valSpin"></span></label>
         <label class="ed-row" id="rowG">Gravity<select id="selG" class="ed-input ed-select"><option value="-1">Flip (blue)</option><option value="1">Normal (gold)</option></select><span class="ed-val" id="valG"></span></label>
+        <label class="ed-row" id="rowSize">Size<select id="selSize" class="ed-input ed-select"><option value="0.6">Mini (pink)</option><option value="1">Normal (green)</option></select><span class="ed-val" id="valSize"></span></label>
+        <label class="ed-row" id="rowWind">Wind<select id="selWind" class="ed-input ed-select"><option value="up">Updraft ▲</option><option value="down">Downdraft ▼</option></select><span class="ed-val" id="valWind"></span></label>
+        <label class="ed-row" id="rowForce">Force<input type="range" id="sldForce" min="100" max="800" step="50" /><span class="ed-val" id="valForce"></span></label>
         <label class="ed-row" id="rowStr">Power<input type="range" id="sldStr" min="1" max="10" step="1" /><span class="ed-val" id="valStr"></span></label>
         <label class="ed-row" id="rowDur">Time<input type="range" id="sldDur" min="0.5" max="10" step="0.5" /><span class="ed-val" id="valDur"></span></label>
         <label class="ed-row" id="rowSpd">Speed<input type="range" id="sldSpd" min="0.5" max="2.5" step="0.1" /><span class="ed-val" id="valSpd"></span></label>
@@ -254,12 +262,12 @@
     </div>
   </div>
 
-  <script src="js/difficulty.js?v=20260908e"></script>
-  <script src="js/levels.js?v=20260908e"></script>
-  <script src="js/worlds.js?v=20260908e"></script>
-  <script src="js/secretcoins.js?v=20260908e"></script>
-  <script src="js/music.js?v=20260908e"></script>
-  <script src="js/trails.js?v=20260908e"></script>
-  <script src="js/game.js?v=20260908e"></script>
+  <script src="js/difficulty.js?v=20260909"></script>
+  <script src="js/levels.js?v=20260909"></script>
+  <script src="js/worlds.js?v=20260909"></script>
+  <script src="js/secretcoins.js?v=20260909"></script>
+  <script src="js/music.js?v=20260909"></script>
+  <script src="js/trails.js?v=20260909"></script>
+  <script src="js/game.js?v=20260909"></script>
 </body>
 </html>

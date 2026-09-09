@@ -3,9 +3,10 @@
  *
  * One secret coin per level, keyed "packId:levelIndex". Every spot here was
  * checked with a headless solver (scratch tool, 2026-09-07; levels 21–25 on
- * 2026-09-08 with gravity portals and spinners modelled) that searches all
- * hold/release inputs frame by frame: the ship can grab the coin AND still
- * reach the finish. The coins sit off the normal line — hugging a wall, a
+ * 2026-09-08 with gravity portals and spinners modelled; levels 26–30 on
+ * 2026-09-09 with wind zones, blocks and mini portals, driving the game's own
+ * stepShip / hitsObstacle) that searches all hold/release inputs frame by
+ * frame: the ship can grab the coin AND still reach the finish. The coins sit off the normal line — hugging a wall, a
  * spike tip, or the very top/bottom of an open stretch — so they're a detour.
  *
  * If a level's obstacles change, re-run the solver and update its entry.
@@ -38,6 +39,11 @@
     "main:22": { x: 6260, y: 29 },
     "main:23": { x: 7184, y: 77 },
     "main:24": { x: 7411, y: 29 },
+    "main:25": { x: 6233, y: 29 },
+    "main:26": { x: 7257, y: 29 },
+    "main:27": { x: 6759, y: 511 },
+    "main:28": { x: 8541, y: 511 },
+    "main:29": { x: 8472, y: 511 },
     "temple.dawn:0": { x: 624, y: 348 },
     "temple.dawn:1": { x: 1018, y: 42 },
     "temple.dawn:2": { x: 2720, y: 42 },

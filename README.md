@@ -7,16 +7,25 @@ the end. Controls are shown on screen, so there's nothing to memorize.
 
 ## Features
 
-- 25 hand-built levels that ramp from gentle to unforgiving. Levels 21–25 add two new
+- 30 hand-built levels that ramp from gentle to unforgiving. Levels 21–25 add two new
   mechanics: gravity portals (blue flips you upside down, gold flips you back) and spinners
-  (blades that sweep out of the walls and through corridors)
-- Coins 🪙 for clearing levels — spend them on 25 ships and 5 trails (rainbow ribbon, fire,
-  stardust, lightning, ghostly echoes) that follow your ship, and don't miss the daily chest
-- A built-in level creator: place spikes, pistons, gates, spinners and gravity portals, resize
-  them, test instantly, and play your own. A big Geometry-Dash-style knob scrolls through the
+  (blades that sweep out of the walls and through corridors). Levels 26–30 add three more:
+  wind zones (updrafts and downdrafts that push the ship), blocks (crates you fly over or
+  under, never through) and mini portals (pink shrinks your ship so it fits through tiny
+  gaps, green grows it back)
+- Coins 🪙 for clearing levels — spend them on 27 ships and 8 trails (rainbow ribbon, fire,
+  stardust, lightning, ghostly echoes, bubbles, confetti, hearts) that follow your ship, and
+  don't miss the daily chest. The Dolphin and the Platypus are the grand prizes at 1000 coins
+  each, on a row of their own
+- A built-in level creator: place spikes, pistons, gates, spinners, gravity portals, blocks,
+  wind zones and mini portals, resize them, test instantly, and play your own. A big Geometry-Dash-style knob scrolls through the
   level — easy to grab on an iPad
 - Decoration triggers in the creator: shake, pulse, speed, particles, spike and background
   colors, background styles, fades, and a stop trigger
+- Every main level is decorated with those same triggers, and each mechanic has its own look:
+  cyan corridors, lime zig-zags, red chaos with a rumble and embers, an amber glow for
+  pistons, a violet pulse for gates, steel and sparks for spinners, and the whole world turns
+  blue while gravity is flipped. Backgrounds change by world and every finish sparkles gold
 - Nine difficulty ratings, each with its own face: Easy, Hard, Insane, Ultra, and the five Demons
   up to Extreme Demon
 - More worlds behind the ➕ button: three Temples (five levels each, easy to brutal), a Map
