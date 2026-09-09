@@ -7,19 +7,26 @@ the end. Controls are shown on screen, so there's nothing to memorize.
 
 ## Features
 
-- Hand-built levels that ramp from gentle to unforgiving
-- Coins 🪙 for clearing levels — spend them on new ships, and don't miss the daily chest
-- A built-in level creator: place obstacles, resize them, test instantly, and play your own
+- 25 hand-built levels that ramp from gentle to unforgiving. Levels 21–25 add two new
+  mechanics: gravity portals (blue flips you upside down, gold flips you back) and spinners
+  (blades that sweep out of the walls and through corridors)
+- Coins 🪙 for clearing levels — spend them on 25 ships and 5 trails (rainbow ribbon, fire,
+  stardust, lightning, ghostly echoes) that follow your ship, and don't miss the daily chest
+- A built-in level creator: place spikes, pistons, gates, spinners and gravity portals, resize
+  them, test instantly, and play your own. A big Geometry-Dash-style knob scrolls through the
+  level — easy to grab on an iPad
 - Decoration triggers in the creator: shake, pulse, speed, particles, spike and background
   colors, background styles, fades, and a stop trigger
-- Eight difficulty ratings, each with its own face: Easy, Hard, Insane, Ultra, and the four Demons
+- Nine difficulty ratings, each with its own face: Easy, Hard, Insane, Ultra, and the five Demons
+  up to Extreme Demon
 - More worlds behind the ➕ button: three Temples (five levels each, easy to brutal), a Map
   trail with a Dungeon at the end, Races against a rival bot, and Straight Fly
 - Search every level by name, 5-character level ID, or difficulty face, newest first, with the
-  newest level spotlighted at the top. Share a level as a link: beat your own level, post it,
-  and a friend opens the link (or pastes it into Search) to get the level
-- Pick a name once in Settings; names can't be changed afterwards
-- Settings: pick a name for posting and racing, and toggle the percentage bar and readout
+  newest level spotlighted at the top
+- Settings: pick a name for racing (names can't be changed afterwards), and toggle the
+  percentage bar and readout
+- Debug mode (Settings → Debug): unlimited coins and every level, ship and trail unlocked, for
+  testing. Nothing earned in debug mode is saved, and it never touches real progress
 - A secret coin in every level, tucked off the main line; grab it and finish the level to bank a
   bonus. Every built-in coin is checked reachable by a headless search. The creator has a Secret
   Coin tool so your own levels can hide one too
@@ -70,8 +77,12 @@ matching files.
 ```
 index.html      Markup for the game + all menu/overlay screens
 css/style.css   All styling
-js/levels.js    Level definitions
+js/levels.js    Level definitions (+ the segment library and the portal / spinner builders)
+js/worlds.js    Temples and the Map, built from the same segments
+js/difficulty.js  The nine difficulty faces
+js/secretcoins.js Where each built-in level hides its secret coin
 js/music.js     Procedural per-level music
+js/trails.js    Trail effects that follow the ship
 js/game.js      Game engine (physics, rendering, input, saves)
 ```
 

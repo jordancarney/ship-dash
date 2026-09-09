@@ -6,7 +6,7 @@
   <title>Ship Dash</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>" />
   <!-- ?v= busts stale caches — bump it (today's date works) whenever css/ or js/ change -->
-  <link rel="stylesheet" href="css/style.css?v=20260907c" />
+  <link rel="stylesheet" href="css/style.css?v=20260908d" />
 </head>
 <body>
   <div id="stage">
@@ -15,11 +15,12 @@
     <!-- Home screen -->
     <div id="home" class="overlay">
       <div class="coin-pill">🪙 <span class="coin-val">0</span></div>
+      <div id="debugBadge" class="debug-badge hidden" title="Debug mode is on (Settings → Debug)">🛠 DEBUG</div>
       <h1 class="title">SHIP&nbsp;DASH</h1>
       <p class="tagline">Fly the ship. Dodge the spikes. Reach the end.</p>
       <canvas id="homeShip" class="home-ship" width="220" height="130"></canvas>
       <div class="home-actions">
-        <button id="skinBtn" class="btn btn-ghost btn-big">Ships</button>
+        <button id="skinBtn" class="btn btn-ghost btn-big">Ships &amp; Trails</button>
         <button id="playBtn" class="btn btn-big">▶&nbsp; Play</button>
         <div class="plus-wrap">
           <button id="plusBtn" class="btn btn-ghost btn-big btn-plus" title="More modes">+</button>
@@ -82,7 +83,7 @@
         <span id="edSaved" class="ed-saved">SAVED ✓</span>
         <button id="edTest" class="btn btn-sm">▶&nbsp;Test</button>
       </div>
-      <div class="ed-hint">Click to place · drag to move · scroll to pan · drag gates up &amp; down</div>
+      <div class="ed-hint">Click to place · drag to move · drag the knob (or scroll) to pan · drag gates up &amp; down</div>
       <div class="ed-bar ed-palette">
         <button class="ed-tool" data-tool="select" title="Select and move spikes"><span class="sel-ic"></span>Select</button>
         <button class="ed-tool" data-tool="bottom" title="Static spike on the floor"><span class="tri tri-up"></span>Floor</button>
@@ -90,6 +91,9 @@
         <button class="ed-tool" data-tool="launching" title="Moving spike that launches up from the floor"><span class="tri tri-up amber"></span>Launcher</button>
         <button class="ed-tool" data-tool="falling" title="Moving spike that drops down from the ceiling"><span class="tri tri-down amber"></span>Faller</button>
         <button class="ed-tool" data-tool="gate" title="Sliding gate with a moving hole"><span class="gate-ic"><span class="g-t"></span><span class="g-b"></span></span>Gate</button>
+        <button class="ed-tool" data-tool="spinner" title="Spinning blade. Drop it on a wall to hide the blade half the time, or float it with two blades"><span class="spin-ic"></span>Spinner</button>
+        <button class="ed-tool" data-tool="flip" title="Blue portal: flips gravity so the ship falls UP"><span class="portal-ic blue"></span>Flip Portal</button>
+        <button class="ed-tool" data-tool="gold" title="Gold portal: gravity back to normal"><span class="portal-ic gold"></span>Gold Portal</button>
         <button class="ed-tool" data-tool="coin" title="A secret coin to find (drag it anywhere)"><span class="coin-ic"></span>Secret Coin</button>
       </div>
       <div id="edDiffPick" class="ed-diffpick hidden"></div>
@@ -116,20 +120,29 @@
         <label class="ed-row" id="rowGap">Hole<input type="range" id="sldGap" min="36" max="200" step="2" /><span class="ed-val" id="valGap"></span></label>
         <label class="ed-row" id="rowAmp">Swing<input type="range" id="sldAmp" min="0" max="200" step="5" /><span class="ed-val" id="valAmp"></span></label>
         <label class="ed-row" id="rowPer">Cycle<input type="range" id="sldPer" min="0.8" max="5" step="0.1" /><span class="ed-val" id="valPer"></span></label>
+        <label class="ed-row" id="rowR">Radius<input type="range" id="sldR" min="40" max="260" step="5" /><span class="ed-val" id="valR"></span></label>
+        <label class="ed-row" id="rowBlades">Blades<select id="selBlades" class="ed-input ed-select"><option value="1">One</option><option value="2">Two</option></select><span class="ed-val" id="valBlades"></span></label>
+        <label class="ed-row" id="rowSpin">Spin<select id="selSpin" class="ed-input ed-select"><option value="cw">Clockwise ⟳</option><option value="ccw">Counter ⟲</option></select><span class="ed-val" id="valSpin"></span></label>
+        <label class="ed-row" id="rowG">Gravity<select id="selG" class="ed-input ed-select"><option value="-1">Flip (blue)</option><option value="1">Normal (gold)</option></select><span class="ed-val" id="valG"></span></label>
         <label class="ed-row" id="rowStr">Power<input type="range" id="sldStr" min="1" max="10" step="1" /><span class="ed-val" id="valStr"></span></label>
         <label class="ed-row" id="rowDur">Time<input type="range" id="sldDur" min="0.5" max="10" step="0.5" /><span class="ed-val" id="valDur"></span></label>
         <label class="ed-row" id="rowSpd">Speed<input type="range" id="sldSpd" min="0.5" max="2.5" step="0.1" /><span class="ed-val" id="valSpd"></span></label>
         <label class="ed-row" id="rowCol">Color<input type="color" id="colCol" /><span class="ed-val" id="valCol"></span></label>
         <label class="ed-row" id="rowCol2">BG<input type="color" id="colCol2" /><span class="ed-val" id="valCol2"></span></label>
-        <label class="ed-row" id="rowBg">Style<select id="selBg" class="ed-input ed-select"><option value="stars">Stars</option><option value="grid">Grid</option><option value="hills">Hills</option><option value="nebula">Nebula</option><option value="void">Void</option></select><span class="ed-val"></span></label>
+        <label class="ed-row" id="rowBg">Style<select id="selBg" class="ed-input ed-select"><option value="stars">Stars</option><option value="grid">Grid</option><option value="hills">Hills</option><option value="nebula">Nebula</option><option value="void">Void</option></select><span class="ed-val" id="valBg"></span></label>
       </div>
     </div>
 
-    <!-- Ship / skin select -->
+    <!-- Shop: ships and trails -->
     <div id="skins" class="overlay hidden">
       <div class="coin-pill">🪙 <span class="coin-val">0</span></div>
-      <h2 class="screen-title">CHOOSE YOUR SHIP</h2>
+      <h2 id="shopTitle" class="screen-title">CHOOSE YOUR SHIP</h2>
+      <div class="settings-tabs">
+        <button id="tabShips" class="btn btn-ghost tab-btn active">🚀&nbsp; Ships</button>
+        <button id="tabTrails" class="btn btn-ghost tab-btn">✨&nbsp; Trails</button>
+      </div>
       <div id="skinGrid" class="skin-grid"></div>
+      <div id="trailGrid" class="skin-grid trail-grid hidden"></div>
       <button id="backFromSkins" class="btn btn-ghost">←&nbsp; Back</button>
     </div>
 
@@ -139,9 +152,10 @@
       <div class="settings-tabs">
         <button id="tabAccount" class="btn btn-ghost tab-btn active">👤&nbsp; Account</button>
         <button id="tabControls" class="btn btn-ghost tab-btn">🎮&nbsp; Controls</button>
+        <button id="tabDebug" class="btn btn-ghost tab-btn">🛠&nbsp; Debug</button>
       </div>
       <div id="panelAccount" class="settings-panel">
-        <p id="accountStatus" class="tagline">No name yet — pick one to post levels and race.</p>
+        <p id="accountStatus" class="tagline">No name yet — pick one to use in Races.</p>
         <button id="nameBtn" class="btn btn-ghost">✏️&nbsp; Name</button>
         <div id="nameForm" class="name-form hidden">
           <input id="nameInput" class="ed-input" maxlength="16" placeholder="Your name" spellcheck="false" autocomplete="off" />
@@ -152,6 +166,11 @@
         <label class="toggle-row"><input type="checkbox" id="optBar" /> Show percentage bar</label>
         <label class="toggle-row"><input type="checkbox" id="optPct" /> Show percentage</label>
         <p class="tagline">The bar and number show how far through a level you are.</p>
+      </div>
+      <div id="panelDebug" class="settings-panel hidden">
+        <label class="toggle-row"><input type="checkbox" id="optDebug" /> Debug mode</label>
+        <div id="debugState" class="debug-state">DEBUG MODE IS OFF</div>
+        <p class="tagline">Unlimited coins ∞, and every level, ship and trail unlocked — for testing.<br />Clears and coins earned in debug mode don't count or save, and ships or trails you don't own go back when you turn it off.</p>
       </div>
       <button id="backFromSettings" class="btn btn-ghost">←&nbsp; Back</button>
     </div>
@@ -176,25 +195,16 @@
       </div>
     </div>
 
-    <!-- Search: shared levels (share codes — no server needed) -->
+    <!-- Search: every level in the game, plus your own creations -->
     <div id="search" class="overlay hidden">
       <button id="backFromSearch" class="btn btn-ghost btn-sm back-pin">←&nbsp; Back</button>
       <h2 class="screen-title">SEARCH LEVELS</h2>
-      <p class="tagline">Find any level by name, or pick a difficulty face. Newest levels first. Got a friend's link? Open it, or paste it into the box.</p>
+      <p class="tagline">Find any level by name, or pick a difficulty face. Newest levels first.</p>
       <div class="search-bar">
-        <input id="searchInput" class="ed-input" placeholder="Search by name, author, level ID, or paste a code" spellcheck="false" autocomplete="off" />
-        <button id="postBtn" class="btn btn-sm">📤&nbsp;Post my level</button>
+        <input id="searchInput" class="ed-input" placeholder="Search by name, world, or level ID" spellcheck="false" autocomplete="off" />
       </div>
       <div id="searchDiffs" class="search-diffs"></div>
       <div id="searchCount" class="search-count"></div>
-      <div id="postBox" class="code-box hidden">
-        <div id="postPick" class="post-pick"></div>
-        <textarea id="postText" class="ed-input code-text" readonly spellcheck="false"></textarea>
-        <div class="code-actions">
-          <button id="copyCode" class="btn btn-sm">🔗&nbsp;Copy link</button>
-          <span id="postMsg" class="code-msg"></span>
-        </div>
-      </div>
       <div id="searchTop" class="search-top hidden"></div>
       <div id="searchList" class="level-grid"></div>
       <p class="tagline search-end">That's every level. Scroll up to search again.</p>
@@ -244,11 +254,12 @@
     </div>
   </div>
 
-  <script src="js/difficulty.js?v=20260907c"></script>
-  <script src="js/levels.js?v=20260907c"></script>
-  <script src="js/worlds.js?v=20260907c"></script>
-  <script src="js/secretcoins.js?v=20260907c"></script>
-  <script src="js/music.js?v=20260907c"></script>
-  <script src="js/game.js?v=20260907c"></script>
+  <script src="js/difficulty.js?v=20260908d"></script>
+  <script src="js/levels.js?v=20260908d"></script>
+  <script src="js/worlds.js?v=20260908d"></script>
+  <script src="js/secretcoins.js?v=20260908d"></script>
+  <script src="js/music.js?v=20260908d"></script>
+  <script src="js/trails.js?v=20260908d"></script>
+  <script src="js/game.js?v=20260908d"></script>
 </body>
 </html>

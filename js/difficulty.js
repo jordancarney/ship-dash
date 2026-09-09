@@ -1,10 +1,11 @@
 /*
  * Ship Dash — difficulty ratings
  *
- * Eight tiers, each with its own "rating face" (Geometry Dash style).
+ * Nine tiers, each with its own "rating face" (Geometry Dash style).
  * The faces are drawn as inline SVG so they need no image files:
  * the smile flips to a frown as tiers climb, brows get angrier, and the
- * demon tiers grow horns and fangs.
+ * demon tiers grow horns and fangs. The last tier, Extreme Demon, wears a
+ * near-black face with a red outline and a crown of flames.
  *
  *   diffFace(tier, size)  -> SVG markup string for the face
  *   DIFFS[tier]           -> { id, name, color, demon }
@@ -21,6 +22,9 @@
     { id: "harddemon",   name: "Hard Demon",   color: "#ff3b3b", demon: true },
     { id: "insanedemon", name: "Insane Demon", color: "#c21d5c", demon: true },
     { id: "ultrademon",  name: "Ultra Demon",  color: "#7b2cff", demon: true },
+    // `face`/`horn`/`line` override the fill colors so the face can be dark
+    // while badges and labels (which use `color`) stay readable.
+    { id: "extremedemon", name: "Extreme Demon", color: "#ff1744", face: "#2a0a14", horn: "#5c0f22", line: "#ff1744", demon: true },
   ];
 
   // Darken a hex color by a factor (0..1) for outlines and shading.
@@ -34,14 +38,14 @@
     tier = Math.max(0, Math.min(DIFFS.length - 1, tier | 0));
     size = size || 40;
     const d = DIFFS[tier];
-    const col = d.color, dark = shade(col, 0.45), line = shade(col, 0.28);
+    const col = d.face || d.color, dark = d.horn || shade(col, 0.45), line = d.line || shade(col, 0.28);
     const demon = d.demon;
-    const rank = demon ? tier - 4 : tier;   // 0..3 within its group
+    const rank = demon ? tier - 4 : tier;   // 0..3 within its group (Extreme Demon is rank 4)
     const parts = [];
 
     // horns (demons): bigger and more curved with rank
     if (demon) {
-      const hh = 14 + rank * 4;
+      const hh = Math.min(26, 14 + rank * 4);
       parts.push(`<path d="M18 30 C 12 ${30 - hh} 22 ${28 - hh} 30 ${24 - rank}" fill="${dark}" stroke="${line}" stroke-width="2.5" stroke-linejoin="round"/>`);
       parts.push(`<path d="M82 30 C 88 ${30 - hh} 78 ${28 - hh} 70 ${24 - rank}" fill="${dark}" stroke="${line}" stroke-width="2.5" stroke-linejoin="round"/>`);
     }
@@ -81,10 +85,16 @@
     }
 
     // ultra tiers: little sparkles / flames around the head
-    if (rank === 3) {
+    if (rank >= 3) {
       const glow = demon ? "#ff4b4b" : "#e4c8ff";
       parts.push(`<path d="M50 6 L 54 14 L 50 12 L 46 14 Z" fill="${glow}"/>`);
       parts.push(`<path d="M14 62 L 20 60 L 16 66 Z" fill="${glow}"/><path d="M86 62 L 80 60 L 84 66 Z" fill="${glow}"/>`);
+    }
+    // extreme demon: a crown of flames and a cracked brow
+    if (rank === 4) {
+      parts.push(`<path d="M30 12 L 37 24 L 27 21 Z" fill="#ff1744"/><path d="M70 12 L 63 24 L 73 21 Z" fill="#ff1744"/>`);
+      parts.push(`<path d="M50 0 L 57 12 L 50 8 L 43 12 Z" fill="#ffd166"/>`);
+      parts.push(`<path d="M46 26 L 49 32 L 45 36 L 48 41" fill="none" stroke="#ff1744" stroke-width="1.6" stroke-linecap="round"/>`);
     }
 
     return `<svg class="diff-face diff-${d.id}" viewBox="0 0 100 100" width="${size}" height="${size}" aria-label="${d.name}">${parts.join("")}</svg>`;

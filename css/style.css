@@ -206,6 +206,13 @@ html, body {
 @keyframes deny-shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-5px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
 .skin-card.deny { animation: deny-shake 0.4s ease; }
 
+/* ---------- Trails tab ---------- */
+.trail-grid { max-width: 820px; }
+.skin-card.trail-card { width: clamp(156px, 22vmin, 200px); }
+.trail-card canvas { width: 100%; height: auto; }
+.skin-card .sdesc { font-size: 10.5px; color: var(--muted); line-height: 1.3; text-align: center; min-height: 27px; }
+#skins .settings-tabs { margin-top: -6px; }
+
 /* ---------- Coin pill ---------- */
 .coin-pill {
   position: absolute;
@@ -222,6 +229,25 @@ html, body {
   font-weight: 800;
   font-size: 15px;
 }
+
+/* ---------- Debug mode ---------- */
+.debug-badge {
+  position: absolute;
+  top: 18px;
+  left: 22px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 209, 102, 0.14);
+  border: 1px solid rgba(255, 209, 102, 0.6);
+  color: var(--gold);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  box-shadow: 0 0 14px rgba(255, 209, 102, 0.35);
+}
+.debug-badge.hidden { display: none; }
+.debug-state { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; color: var(--muted); }
+.debug-state.on { color: var(--gold); text-shadow: 0 0 10px rgba(255, 209, 102, 0.5); }
 
 /* ---------- Daily chest ---------- */
 .chest-btn {
@@ -405,7 +431,8 @@ html, body {
   pointer-events: auto;
 }
 .ed-topbar { top: 10px; left: 10px; right: 10px; }
-.ed-palette { bottom: 30px; left: 50%; transform: translateX(-50%); flex-wrap: wrap; justify-content: center; }
+/* sits above the canvas-drawn scroll knob; the % keeps it clear on big screens */
+.ed-palette { bottom: clamp(38px, 9.5%, 76px); left: 50%; transform: translateX(-50%); flex-wrap: wrap; justify-content: center; }
 
 .btn-sm { padding: 8px 15px; font-size: 13px; border-radius: 8px; }
 
@@ -492,6 +519,10 @@ html, body {
 .gate-ic { display: flex; flex-direction: column; gap: 3px; }
 .gate-ic .g-t { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid #d2a8ff; }
 .gate-ic .g-b { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid #d2a8ff; }
+.spin-ic { position: relative; width: 12px; height: 12px; border-radius: 50%; border: 1.5px dashed rgba(255, 90, 110, 0.7); }
+.spin-ic::after { content: ""; position: absolute; left: 50%; top: 50%; width: 2px; height: 7px; margin: -7px 0 0 -1px; background: #ff4757; border-radius: 1px; transform-origin: 50% 100%; transform: rotate(35deg); }
+.portal-ic { width: 7px; height: 14px; border-radius: 4px; border: 2px dashed #4f8cff; box-shadow: 0 0 6px rgba(79, 140, 255, 0.7); }
+.portal-ic.gold { border-color: #ffd23a; box-shadow: 0 0 6px rgba(255, 210, 58, 0.7); }
 
 /* properties panel */
 .ed-props {
@@ -690,28 +721,9 @@ html, body {
 .map-link { width: 36px; height: 4px; border-radius: 2px; background: rgba(70, 230, 255, 0.25); flex: none; }
 .map-link.done { background: var(--gold); }
 
-/* ---------- Search / share codes ---------- */
+/* ---------- Search ---------- */
 .search-bar { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; }
 .search-bar input { width: min(320px, 70vw); }
-.code-box {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: min(560px, 88vw);
-  padding: 12px;
-  border-radius: 14px;
-  background: rgba(8, 12, 26, 0.7);
-  border: 1px solid rgba(70, 230, 255, 0.25);
-}
-.code-box.hidden { display: none; }
-.code-text { width: 100%; height: 64px; resize: none; font-size: 11px; font-family: ui-monospace, Menlo, monospace; font-weight: 500; word-break: break-all; }
-.code-actions { display: flex; align-items: center; gap: 12px; }
-.code-msg { font-size: 12px; color: var(--muted); }
-.code-msg.ok { color: #9cff57; }
-.code-msg.bad { color: var(--danger); }
-.post-pick { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
-.post-pick .mini-btn.active { border-color: var(--accent); background: rgba(70, 230, 255, 0.14); }
-.post-pick .mini-btn.nope { opacity: 0.5; }
 .level-card .author { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
 /* ---------- Races ---------- */

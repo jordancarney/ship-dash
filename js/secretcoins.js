@@ -2,7 +2,8 @@
  * Ship Dash — SECRET COIN positions for the built-in levels.
  *
  * One secret coin per level, keyed "packId:levelIndex". Every spot here was
- * checked with a headless solver (scratch tool, 2026-09-07) that searches all
+ * checked with a headless solver (scratch tool, 2026-09-07; levels 21–25 on
+ * 2026-09-08 with gravity portals and spinners modelled) that searches all
  * hold/release inputs frame by frame: the ship can grab the coin AND still
  * reach the finish. The coins sit off the normal line — hugging a wall, a
  * spike tip, or the very top/bottom of an open stretch — so they're a detour.
@@ -32,6 +33,11 @@
     "main:17": { x: 4713, y: 498 },
     "main:18": { x: 4567, y: 498 },
     "main:19": { x: 4260, y: 29 },
+    "main:20": { x: 4271, y: 511 },
+    "main:21": { x: 2614, y: 29 },
+    "main:22": { x: 6260, y: 29 },
+    "main:23": { x: 7184, y: 77 },
+    "main:24": { x: 7411, y: 29 },
     "temple.dawn:0": { x: 624, y: 348 },
     "temple.dawn:1": { x: 1018, y: 42 },
     "temple.dawn:2": { x: 2720, y: 42 },

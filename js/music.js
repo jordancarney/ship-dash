@@ -5,7 +5,8 @@
  *
  * Every level gets its own deterministic track. The tempo climbs with the
  * level number, the sound follows the game's worlds (bright major for 1-5,
- * driving minor for 6-10, a dark phrygian flavor for 11-20), and a seeded
+ * driving minor for 6-10, a dark phrygian flavor for 11-20, a menacing
+ * phrygian-dominant grind for 21+), and a seeded
  * PRNG picks the key, bass groove, hat pattern and lead melody — so level 7
  * always plays "level 7's song" and no two levels sound quite the same.
  * Custom levels hash their id for the same treatment; Straight Fly has a
@@ -50,6 +51,11 @@
       scale: [0, 1, 5, 7, 10],       // phrygian-flavored
       prog: [0, 1, 0, -2],           // i bII i VII
       bassWave: "sawtooth", bassVol: 0.3, leadWave: "sawtooth",
+    },
+    { // levels 21-25: beyond the event horizon
+      scale: [0, 1, 4, 5, 7, 8, 10], // phrygian dominant — exotic and menacing
+      prog: [0, 1, -2, 0],           // i bII VII i
+      bassWave: "sawtooth", bassVol: 0.32, leadWave: "sawtooth",
     },
   ];
   const ROOTS = [110.0, 98.0, 123.47, 87.31, 103.83, 116.54]; // A2 G2 B2 F2 G#2 A#2
@@ -305,7 +311,7 @@
     playLevel(i) {
       play(trackFor("L" + i, () => buildTrack({
         seed: 0x5eed + i * 7919,
-        mood: i < 5 ? 0 : i < 10 ? 1 : 2,   // matches the game's worlds
+        mood: i < 5 ? 0 : i < 10 ? 1 : i < 20 ? 2 : 3,   // matches the game's worlds
         root: i % ROOTS.length,
         bpm: Math.round(104 + i * 2.3),     // tempo climbs with the level
         heat: Math.min(1, i / 19),

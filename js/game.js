@@ -31,7 +31,6 @@
   const CUSTOM_SPEED = 210;                // scroll speed for all custom levels
   const SETTINGS_KEY = "shipdash.settings.v1"; // { name, showBar, showPct }
   const PACKS_KEY = "shipdash.packs.v1";   // per-pack unlock progress (temples, map)
-  const SHARED_KEY = "shipdash.shared.v1"; // levels added from share codes
   const RACE_KEY = "shipdash.races.v1";    // { wins, losses }
   const LEVELCOINS_KEY = "shipdash.levelcoins.v1"; // built-in level coins found ("packId:index")
   const COIN_R = 12;                       // pickup radius of a level coin
@@ -68,6 +67,25 @@
   const TEMPLES = window.TEMPLES || [];
   const MAP = window.MAP || [];
 
+  // ----- Trails (js/trails.js) -------------------------------------------
+  // Cosmetic effects behind the ship, bought with coins. The stub keeps the
+  // game alive if that script ever fails to load (a bare no-op Classic trail).
+  const TRAILS = window.TRAILS || {
+    DEFS: [{ id: "classic", name: "Classic", cost: 0, desc: "" }],
+    init() {}, make: () => ({ pts: [], parts: [], acc: 0 }), step() {}, update() {}, draw() {},
+    makePreview: () => ({}), stepPreview() {}, drawPreview() {},
+  };
+  const TRAIL_KEY = "shipdash.trail.v1";             // equipped trail id
+  const OWNEDTRAILS_KEY = "shipdash.ownedtrails.v1"; // purchased trail ids
+  function loadTrail() { const v = storeGet(TRAIL_KEY); return TRAILS.DEFS.some((d) => d.id === v) ? v : "classic"; }
+  function loadOwnedTrails() {
+    try { const a = JSON.parse(storeGet(OWNEDTRAILS_KEY) || "[]"); return new Set(Array.isArray(a) ? a : []); } catch (e) { return new Set(); }
+  }
+  function saveOwnedTrails() { storeSet(OWNEDTRAILS_KEY, JSON.stringify([...state.ownedTrails])); }
+  function trailDef() { return TRAILS.DEFS.find((d) => d.id === state.trailId) || TRAILS.DEFS[0]; }
+  function isTrailOwned(id) { const d = TRAILS.DEFS.find((x) => x.id === id); return !!d && (debugOn() || d.cost === 0 || state.ownedTrails.has(id)); }
+  function curSkin() { return SKINS[state.skin] || SKINS[0]; }
+
   // ----- Level packs -----------------------------------------------------
   // A pack is an ordered list of levels with its own unlock progress:
   // the main 20 levels, each temple, and each map trail.
@@ -80,13 +98,18 @@
     const v = state.packProg[pack.id] | 0;
     return v;
   }
+  // Debug mode (Settings → Debug): every level, ship and trail is open and
+  // coins read ∞ — a sandbox for testing. Nothing earned in it is saved, so
+  // real progress and purchases are untouched when it's switched off.
+  function debugOn() { return !!state.settings.debug; }
+  function isLevelLocked(pack, i) { return !debugOn() && i > packUnlocked(pack); }
   function setPackUnlocked(pack, v) {
     if (pack.kind === "main") return saveUnlocked(v);
     state.packProg[pack.id] = Math.max(packUnlocked(pack), v);
     savePackProg();
   }
   // music: temple/map levels borrow the main soundtrack, picked by difficulty
-  const DIFF_TRACK = [2, 5, 8, 11, 14, 16, 18, 19];
+  const DIFF_TRACK = [2, 5, 8, 11, 14, 16, 18, 19, 23];
 
   // ----- Hidden coins ----------------------------------------------------
   // Every built-in level hides ONE coin somewhere in a gap. It's placed
@@ -102,6 +125,10 @@
     let top = CEIL, bot = FLOOR;
     for (const s of lvl.obstacles) {
       if (s.x + s.w < x - half || s.x > x + half) continue;
+      if (s.dir === "spinner") {   // treat the whole sweep as a wall on the hub's side
+        if (s.cy < H / 2) top = Math.max(top, s.cy + s.r); else bot = Math.min(bot, s.cy - s.r);
+        continue;
+      }
       const apex = spikeTri(s, t)[5];
       if (s.dir === "top" || s.dir === "falling" || s.dir === "gateTop") top = Math.max(top, apex);
       else bot = Math.min(bot, apex);
@@ -223,8 +250,10 @@
     levelIndex: 0,
     unlocked: loadUnlocked(), // highest playable level index
     skin: loadSkin(),         // selected ship skin index
-    coins: loadCoins(),       // currency for unlocking ships
+    coins: loadCoins(),       // currency for unlocking ships and trails
     owned: loadOwned(),       // Set of purchased ship indices
+    trailId: loadTrail(),     // equipped trail (see js/trails.js)
+    ownedTrails: loadOwnedTrails(), // Set of purchased trail ids
     mode: "level",            // "level" | "fly" (Straight Fly endless mode)
     flyTime: 0,               // current Straight Fly survival time
     flyBest: loadFlyBest(),   // best Straight Fly time
@@ -239,14 +268,13 @@
     camX: 0,
     elapsed: 0,               // seconds since level start (hint fade)
     crashTimer: 0,
-    trail: [],
+    trail: TRAILS.make(),     // positions + particles behind the ship
     particles: [],
     primaryAction: null,
     coinAnim: null,           // active level-clear coin count-up
     pack: null,               // level pack being played (main levels, a temple, a map trail)
     packProg: loadPackProg(), // { packId: levels unlocked }
     settings: loadSettings(), // { name, showBar, showPct }
-    shared: loadShared(),     // levels added from share codes
     raceRec: loadRaceRec(),   // { wins, losses }
     race: null,               // active race (see startRace)
     modes: { noclip: false, practice: false }, // assist modes (pause menu); never count as a real clear
@@ -256,6 +284,8 @@
     levelCoins: loadLevelCoins(), // Set of built-in level coins already found
     coinsGot: [],             // coins picked up in the current run (indices)
     fx: null,                 // active decoration-trigger effects (see defaultFx)
+    grav: 1,                  // gravity direction: 1 = normal, -1 = flipped by a blue portal
+    nextPortal: 0,            // index of the next portal the ship hasn't reached yet
   };
 
   let muted = false;
@@ -304,6 +334,7 @@
     return isNaN(v) ? 0 : v;
   }
   function addCoins(n) {
+    if (debugOn()) { updateCoinDisplays(); return; }   // coins are ∞ in debug mode; nothing to add
     state.coins += n;
     storeSet(COINS_KEY, String(state.coins));
     updateCoinDisplays();
@@ -324,7 +355,7 @@
   }
   function saveCustomLevels() { storeSet(CUSTOM_KEY, JSON.stringify(state.customLevels)); }
   function loadSettings() {
-    const d = { name: "", showBar: true, showPct: false };
+    const d = { name: "", showBar: true, showPct: false, debug: false };
     try { return Object.assign(d, JSON.parse(storeGet(SETTINGS_KEY) || "{}")); } catch (e) { return d; }
   }
   function saveSettings() { storeSet(SETTINGS_KEY, JSON.stringify(state.settings)); }
@@ -332,13 +363,6 @@
     try { const o = JSON.parse(storeGet(PACKS_KEY) || "{}"); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; }
   }
   function savePackProg() { storeSet(PACKS_KEY, JSON.stringify(state.packProg)); }
-  function loadShared() {
-    try {
-      const a = JSON.parse(storeGet(SHARED_KEY) || "[]");
-      return Array.isArray(a) ? a.filter((l) => l && typeof l.name === "string" && Array.isArray(l.items)) : [];
-    } catch (e) { return []; }
-  }
-  function saveShared() { storeSet(SHARED_KEY, JSON.stringify(state.shared)); }
   function loadRaceRec() {
     try { return Object.assign({ wins: 0, losses: 0 }, JSON.parse(storeGet(RACE_KEY) || "{}")); } catch (e) { return { wins: 0, losses: 0 }; }
   }
@@ -347,15 +371,17 @@
     try { const a = JSON.parse(storeGet(LEVELCOINS_KEY) || "[]"); return new Set(Array.isArray(a) ? a : []); } catch (e) { return new Set(); }
   }
   function saveLevelCoins() { storeSet(LEVELCOINS_KEY, JSON.stringify([...state.levelCoins])); }
-  function isOwned(i) { return !!SKINS[i] && (SKINS[i].cost === 0 || state.owned.has(i)); }
+  function isOwned(i) { return !!SKINS[i] && (debugOn() || SKINS[i].cost === 0 || state.owned.has(i)); }
   function updateCoinDisplays() {
-    document.querySelectorAll(".coin-val").forEach((e) => { e.textContent = state.coins; });
+    const shown = debugOn() ? "∞" : state.coins;
+    document.querySelectorAll(".coin-val").forEach((e) => { e.textContent = shown; });
   }
 
   // ----- Ship skins ------------------------------------------------------
-  // 20 cosmetic ships (the collision hitbox is always the same circle).
+  // 25 cosmetic ships (the collision hitbox is always the same circle).
   // cost 0 = free from the start; others are bought with coins. The 10 fun
-  // "kid" ships (kitty…unicorn) are the reward for clearing every level.
+  // "kid" ships (kitty…unicorn) are the reward for clearing levels 1–20, and
+  // the last five (duck…pirate) for the levels beyond the Event Horizon.
   const SKINS = [
     { id: "dart",    name: "Dart",    cost: 0,   trail: "#46e6ff", glow: "rgba(70,230,255,0.7)",  flame: "#bff6ff" },
     { id: "saucer",  name: "Saucer",  cost: 0,   trail: "#9cff57", glow: "rgba(140,255,90,0.6)",  flame: "#d8ffa8" },
@@ -378,21 +404,36 @@
     { id: "alien",   name: "Zorp",      cost: 175, trail: "#b6ff5a", glow: "rgba(160,255,80,0.85)", flame: "#e6ffb0" },
     { id: "gold",    name: "Midas",     cost: 200, trail: "#ffd54a", glow: "rgba(255,200,60,0.9)",  flame: "#fff0a8" },
     { id: "unicorn", name: "Sparkle",   cost: 220, trail: "#ff9be0", glow: "rgba(255,160,230,0.85)",flame: "#ffe6ff" },
+    // --- beyond the Event Horizon: five more ---
+    { id: "duck",    name: "Quackers",  cost: 240, trail: "#ffd23a", glow: "rgba(255,210,60,0.75)",  flame: "#fff0a0" },
+    { id: "skull",   name: "Bones",     cost: 260, trail: "#c7d0e6", glow: "rgba(200,210,235,0.7)",  flame: "#ff6b6b" },
+    { id: "bolt",    name: "Zap",       cost: 280, trail: "#ffe600", glow: "rgba(255,230,0,0.9)",    flame: "#fff9c4" },
+    { id: "sub",     name: "Bubbles",   cost: 300, trail: "#7fd8ff", glow: "rgba(255,220,80,0.7)",   flame: "#bde9ff" },
+    { id: "pirate",  name: "Corsair",   cost: 320, trail: "#d9935a", glow: "rgba(217,147,90,0.75)",  flame: "#ffd166" },
   ];
 
   // Coins earned the FIRST time each level is cleared (index = level).
-  // INVARIANT: sum(LEVEL_REWARD) === sum(ship costs) === 1915, so clearing every
+  // INVARIANT: sum(LEVEL_REWARD) === sum(ship costs) === 3315, so clearing every
   // level earns exactly enough to buy every ship. (Add a level -> add a reward;
   // add a ship -> keep total coins >= total cost. Harder later levels pay more.)
+  // Trails are paid for by the temples, the map, secret coins and daily chests.
   const LEVEL_REWARD = [
     15, 20, 25, 50, 40, 45, 50, 55, 60, 85,        // 1–10  (sum 445)
     90, 105, 115, 125, 140, 150, 165, 180, 195, 205, // 11–20 (sum 1470)
+    220, 250, 280, 310, 340,                       // 21–25 (sum 1400)
   ];
   (function checkEconomy() {
     let tr = 0;
     for (let i = 0; i < LEVELS.length; i++) tr += (LEVEL_REWARD[i] != null ? LEVEL_REWARD[i] : DEFAULT_REWARD);
     const tc = SKINS.reduce((a, s) => a + s.cost, 0);
     if (tr < tc) console.warn(`[economy] level coins (${tr}) < total ship cost (${tc}) — can't unlock all ships`);
+    // trails: every other built-in source (temples, map, one secret coin per level) must cover them
+    let extra = 0, nLevels = LEVELS.length;
+    TEMPLES.forEach((t) => t.levels.forEach((l) => { extra += 20 + (l.diff | 0) * 10; nLevels++; }));
+    MAP.forEach((m) => m.levels.forEach((l) => { extra += 20 + (l.diff | 0) * 10; nLevels++; }));
+    extra += nLevels * COIN_REWARD;
+    const tt = TRAILS.DEFS.reduce((a, d) => a + d.cost, 0);
+    if (extra < tt) console.warn(`[economy] temple/map/secret coins (${extra}) < total trail cost (${tt}) — can't unlock all trails`);
   })();
 
   function roundRectPath(c, x, y, w, h, r) {
@@ -794,6 +835,108 @@
         c.globalAlpha = 1;
         break;
       }
+      case "duck": { // rubber duck — round yellow body, orange beak, tiny wing
+        c.shadowColor = skin.glow; c.shadowBlur = 10;
+        const g = c.createLinearGradient(0, -12, 0, 11);
+        g.addColorStop(0, "#fff28a"); g.addColorStop(1, "#ffc21a");
+        c.fillStyle = g; c.strokeStyle = "#e0a000"; c.lineWidth = 1.2;
+        c.beginPath(); c.ellipse(-4, 3, 12, 8, 0, 0, 7); c.fill(); c.stroke();                 // body
+        c.beginPath(); c.arc(6, -5, 7, 0, 7); c.fill(); c.stroke();                            // head
+        c.shadowBlur = 0;
+        c.fillStyle = "#ff8f1f"; c.strokeStyle = "#d96d00";
+        c.beginPath(); c.moveTo(12, -6); c.lineTo(19.5, -3.5); c.lineTo(12, -1); c.closePath(); c.fill(); c.stroke(); // beak
+        c.fillStyle = "#ffd84a"; c.beginPath(); c.ellipse(-6, 3, 6, 3.5, -0.4, 0, 7); c.fill(); // wing
+        c.fillStyle = "#ffcf5a"; c.beginPath(); c.moveTo(-14, 1); c.lineTo(-19, -5); c.lineTo(-15, 5); c.closePath(); c.fill(); // tail
+        c.fillStyle = "#1a1a1a"; c.beginPath(); c.arc(8, -7, 1.6, 0, 7); c.fill();             // eye
+        c.fillStyle = "#fff"; c.beginPath(); c.arc(8.6, -7.6, 0.6, 0, 7); c.fill();
+        break;
+      }
+      case "skull": { // skull — glowing red eye sockets, toothy jaw
+        c.shadowColor = skin.glow; c.shadowBlur = 12;
+        const g = c.createLinearGradient(0, -13, 0, 12);
+        g.addColorStop(0, "#ffffff"); g.addColorStop(1, "#aeb8cc");
+        c.fillStyle = g; c.strokeStyle = "#e9eef8"; c.lineWidth = 1.3;
+        c.beginPath(); c.arc(0, -2, 11.5, 0, 7); c.fill(); c.stroke();                         // cranium
+        roundRectPath(c, -7, 4, 14, 8, 3); c.fill(); c.stroke();                               // jaw
+        c.shadowBlur = 0;
+        c.fillStyle = "#12061a";
+        c.beginPath(); c.ellipse(-4.5, -3, 3.4, 4, 0.2, 0, 7); c.fill();                        // sockets
+        c.beginPath(); c.ellipse(4.5, -3, 3.4, 4, -0.2, 0, 7); c.fill();
+        c.beginPath(); c.moveTo(0, 1.5); c.lineTo(-2, 5); c.lineTo(2, 5); c.closePath(); c.fill(); // nose
+        const glow = 0.6 + 0.4 * Math.sin(t * 6);
+        c.fillStyle = "#ff3b3b"; c.shadowColor = "#ff3b3b"; c.shadowBlur = 8 * glow;
+        c.beginPath(); c.arc(-4.5, -2.5, 1.5, 0, 7); c.fill();
+        c.beginPath(); c.arc(4.5, -2.5, 1.5, 0, 7); c.fill();
+        c.shadowBlur = 0;
+        c.strokeStyle = "#5a6478"; c.lineWidth = 1;                                            // teeth
+        for (const tx of [-4, -1.3, 1.3, 4]) { c.beginPath(); c.moveTo(tx, 6); c.lineTo(tx, 11); c.stroke(); }
+        c.beginPath(); c.moveTo(-7, 8); c.lineTo(7, 8); c.stroke();
+        break;
+      }
+      case "bolt": { // lightning bolt — electric yellow with crackling sparks
+        c.shadowColor = skin.glow; c.shadowBlur = 16;
+        const g = c.createLinearGradient(-16, 0, 17, 0);
+        g.addColorStop(0, "#fff9c4"); g.addColorStop(0.5, "#ffe600"); g.addColorStop(1, "#ffb300");
+        c.fillStyle = g; c.strokeStyle = "#fffde7"; c.lineWidth = 1.4;
+        c.beginPath();
+        c.moveTo(17, 0); c.lineTo(1, -3); c.lineTo(5, -11); c.lineTo(-16, -1);
+        c.lineTo(-3, 3); c.lineTo(-8, 11); c.closePath();
+        c.fill(); c.stroke();
+        c.shadowBlur = 0;
+        c.strokeStyle = "#e0f7ff"; c.lineWidth = 1.2; c.lineCap = "round";
+        const ph = Math.floor(t * 14);                                                          // sparks flicker
+        for (let i = 0; i < 3; i++) {
+          const seed = (ph * 7 + i * 13) % 17, ang = seed / 17 * Math.PI * 2, rr = 12 + (seed % 5);
+          const sx = Math.cos(ang) * rr, sy = Math.sin(ang) * rr * 0.7;
+          c.globalAlpha = 0.5 + 0.5 * ((seed % 3) / 2);
+          c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx + 3, sy - 3); c.lineTo(sx + 5, sy + 1); c.stroke();
+        }
+        c.globalAlpha = 1;
+        break;
+      }
+      case "sub": { // submarine — porthole, periscope, spinning propeller, bubbles
+        c.shadowBlur = 0; c.fillStyle = "rgba(160,220,255,0.6)";                              // bubbles
+        for (let i = 0; i < 3; i++) {
+          const bt = (t * 1.3 + i * 0.33) % 1;
+          c.globalAlpha = 1 - bt;
+          c.beginPath(); c.arc(-18 - bt * 8 - i * 3, -2 - bt * 14, 1.2 + bt * 1.8, 0, 7); c.fill();
+        }
+        c.globalAlpha = 1;
+        c.shadowColor = skin.glow; c.shadowBlur = 10;
+        const g = c.createLinearGradient(0, -8, 0, 8);
+        g.addColorStop(0, "#ffe66d"); g.addColorStop(1, "#e0a400");
+        c.fillStyle = g; c.strokeStyle = "#fff3b0"; c.lineWidth = 1.3;
+        roundRectPath(c, -13, -7, 28, 14, 7); c.fill(); c.stroke();                            // hull
+        c.fillStyle = "#f4c430"; roundRectPath(c, -6, -13, 10, 7, 2); c.fill(); c.stroke();    // tower
+        c.shadowBlur = 0;
+        c.strokeStyle = "#f4c430"; c.lineWidth = 2; c.lineCap = "round";
+        c.beginPath(); c.moveTo(-3, -13); c.lineTo(-3, -17); c.lineTo(1, -17); c.stroke();     // periscope
+        c.fillStyle = "#0a2a3a"; c.strokeStyle = "#fff"; c.lineWidth = 1.2;
+        c.beginPath(); c.arc(5, 0, 3.6, 0, 7); c.fill(); c.stroke();                           // porthole
+        c.fillStyle = "#46e6ff"; c.beginPath(); c.arc(6, -1, 1.2, 0, 7); c.fill();
+        c.strokeStyle = "#c98a00"; c.lineWidth = 1; c.beginPath(); c.moveTo(-4, -5); c.lineTo(-4, 5); c.stroke();
+        c.fillStyle = "#8a6d1f"; c.fillRect(-16, -1.5, 3, 3);                                  // propeller
+        c.fillStyle = "#b0b8c8"; c.beginPath(); c.ellipse(-17, 0, 1.6, 7 * Math.abs(Math.cos(t * 20)) + 0.5, 0, 0, 7); c.fill();
+        break;
+      }
+      case "pirate": { // pirate ship — wooden hull, billowing sail, skull flag
+        c.shadowColor = skin.glow; c.shadowBlur = 10;
+        const hull = c.createLinearGradient(0, 1, 0, 12);
+        hull.addColorStop(0, "#a5612c"); hull.addColorStop(1, "#5a2e0f");
+        c.fillStyle = hull; c.strokeStyle = "#d9935a"; c.lineWidth = 1.2;
+        c.beginPath(); c.moveTo(-15, 2); c.lineTo(16, 2); c.lineTo(11, 11); c.lineTo(-11, 11); c.closePath(); c.fill(); c.stroke(); // hull
+        c.shadowBlur = 0;
+        c.fillStyle = "#ffe14a"; for (const px of [-8, -2, 4]) { c.beginPath(); c.arc(px, 6.5, 1.2, 0, 7); c.fill(); } // portholes
+        c.strokeStyle = "#5a2e0f"; c.lineWidth = 1.6; c.beginPath(); c.moveTo(0, 2); c.lineTo(0, -16); c.stroke(); // mast
+        const sail = c.createLinearGradient(0, -14, 0, 0);
+        sail.addColorStop(0, "#ffffff"); sail.addColorStop(1, "#cfd6e6");
+        c.fillStyle = sail; c.strokeStyle = "#e9eef8"; c.lineWidth = 1;
+        c.beginPath(); c.moveTo(1, -14); c.quadraticCurveTo(13, -8, 1, -1); c.closePath(); c.fill(); c.stroke(); // sail
+        c.fillStyle = "#111"; c.beginPath(); c.moveTo(0, -16.5); c.lineTo(-8, -14.5); c.lineTo(0, -12.5); c.closePath(); c.fill(); // flag
+        c.fillStyle = "#fff"; c.beginPath(); c.arc(-4, -14.5, 1.1, 0, 7); c.fill();           // skull
+        c.fillStyle = "#ffe14a"; c.beginPath(); c.moveTo(16, 2); c.lineTo(19.5, -1.5); c.lineTo(17.5, 3); c.closePath(); c.fill(); // bow figure
+        break;
+      }
       default: { // "dart"
         const g = c.createLinearGradient(-12, -10, 15, 10);
         g.addColorStop(0, "#9af6ff"); g.addColorStop(1, "#1e9fc0");
@@ -851,6 +994,7 @@
   const MUSIC = window.MUSIC ||
     { init() {}, playLevel() {}, playCustom() {}, playFly() {}, stop() {}, pause() {}, resume() {}, setMuted() {} };
   MUSIC.init(ac);
+  TRAILS.init({ paintShip });   // the Echo trail paints ghost copies of the ship
 
   // ----- Geometry / collision -------------------------------------------
   // Current extension (0..len) of a moving spike at level-time t.
@@ -865,12 +1009,19 @@
   function gateCenter(s, t) {
     return s.center + s.amp * Math.sin(2 * Math.PI * ((t / s.period) + (s.phase || 0)));
   }
-  // Triangle [ax,ay,bx,by,cx,cy] for a spike at level-time t.
+  // Triangle [ax,ay,bx,by,cx,cy] for a spike at level-time t (apex last).
   //   bottom/top         = static.   launching/falling = piston in/out of a wall.
   //   gateTop/gateBottom = the two spikes of a moving hole (slide together).
+  //   spinner            = a blade sweeping a circle of radius r around (cx, cy):
+  //                        its base (bw wide) sits on the hub, its apex on the circle.
   function spikeTri(s, t) {
     if (s.dir === "bottom") return [s.x, FLOOR, s.x + s.w, FLOOR, s.x + s.w / 2, FLOOR - s.h];
     if (s.dir === "top") return [s.x, CEIL, s.x + s.w, CEIL, s.x + s.w / 2, CEIL + s.h];
+    if (s.dir === "spinner") {
+      const a = (s.ccw ? -1 : 1) * 2 * Math.PI * ((t / s.period) + (s.phase || 0));
+      const ca = Math.cos(a), sa = Math.sin(a), hw = s.bw / 2;
+      return [s.cx - sa * hw, s.cy + ca * hw, s.cx + sa * hw, s.cy - ca * hw, s.cx + ca * s.r, s.cy + sa * s.r];
+    }
     if (s.dir === "gateTop") { const c = gateCenter(s, t); return [s.x, CEIL, s.x + s.w, CEIL, s.x + s.w / 2, c - s.gap]; }
     if (s.dir === "gateBottom") { const c = gateCenter(s, t); return [s.x, FLOOR, s.x + s.w, FLOOR, s.x + s.w / 2, c + s.gap]; }
     const ext = movingExt(s, t);
@@ -933,12 +1084,14 @@
     state.camX = 0;
     state.elapsed = 0;
     state.crashTimer = 0;
-    state.trail = [];
+    state.trail = TRAILS.make();
     state.particles = [];
     state.fx = defaultFx();
     state.coinsGot = [];
     state.checkpoint = null;
     state.cpTimer = 0;
+    state.grav = 1;
+    state.nextPortal = 0;
     state.assisted = assistActive();
     if (state.race) resetRaceBot();
     hideAllOverlays();
@@ -976,7 +1129,7 @@
     practiceBtn.classList.toggle("mode-on", state.modes.practice);
   }
   function setCheckpoint() {
-    state.checkpoint = { shipX: state.shipX, y: state.y, vy: state.vy, elapsed: state.elapsed,
+    state.checkpoint = { shipX: state.shipX, y: state.y, vy: state.vy, elapsed: state.elapsed, grav: state.grav, nextPortal: state.nextPortal,
       coinsGot: state.coinsGot.slice(), fx: JSON.parse(JSON.stringify(state.fx)) };
     state.cpTimer = 0;
   }
@@ -984,9 +1137,10 @@
     const c = state.checkpoint;
     state.scene = "play";
     state.shipX = c.shipX; state.y = c.y; state.vy = c.vy; state.elapsed = c.elapsed;
+    state.grav = c.grav || 1; state.nextPortal = c.nextPortal | 0;
     state.coinsGot = c.coinsGot.slice(); state.fx = JSON.parse(JSON.stringify(c.fx));
     state.camX = Math.max(0, state.shipX - SHIP_SCREEN_X);
-    state.held = false; state.trail = []; state.particles = []; state.crashTimer = 0; state.cpTimer = 0;
+    state.held = false; state.trail = TRAILS.make(); state.particles = []; state.crashTimer = 0; state.cpTimer = 0;
     state.assisted = true;
     hideAllOverlays();
     blurActive();
@@ -1026,7 +1180,6 @@
   function exitRun() {
     if (state.race) { state.race = null; goRace(); }
     else if (state.custom && state.customFrom === "editor") backToEditor();
-    else if (state.custom && state.customFrom === "search") goSearch();
     else if (state.custom) goCustomMenu();
     else if (state.pack && state.pack.kind === "map") goMap();
     else goMenu(state.pack);
@@ -1054,6 +1207,7 @@
     hideAllOverlays();
     updateCoinDisplays();
     renderChest();
+    debugBadge.classList.toggle("hidden", !debugOn());
     homeEl.classList.remove("hidden");
     plusMenu.classList.add("hidden");
     blurActive();
@@ -1093,11 +1247,12 @@
     blurActive();
   }
 
-  function goSkins() {
+  function goSkins(tab) {
     state.scene = "skins";
     state.held = false;
     hideAllOverlays();
-    renderSkins();
+    if (tab) shopTab = tab;
+    renderShop();
     skinsEl.classList.remove("hidden");
     blurActive();
   }
@@ -1172,7 +1327,7 @@
     if (state.custom) {
       state.scene = "complete";
       sfxComplete();
-      // beating your own level (in a test or from the list) qualifies it for posting
+      // beating your own level (in a test or from the list) earns it a "beaten" badge
       if (state.customSrc && state.customLevels.includes(state.customSrc) && !state.customSrc.beaten) {
         state.customSrc.beaten = true;
         saveCustomLevels();
@@ -1182,9 +1337,6 @@
       if (state.customFrom === "editor") {
         showMessage("complete", "LEVEL CLEAR!", "Your level works." + coinNote + " Back to building!",
           "Back to Editor ✏️", backToEditor, true);
-      } else if (state.customFrom === "search") {
-        showMessage("complete", "LEVEL CLEAR!", `You beat “${state.custom.name}” by ${state.customSrc.author || "?"}!` + coinNote,
-          "Play Again ↺", () => startCustom(), false, "Search");
       } else {
         showMessage("complete", "LEVEL CLEAR!", `You beat “${state.custom.name}”. Nice flying!` + coinNote,
           "Play Again ↺", () => startCustom(), false, "My Levels");
@@ -1208,23 +1360,24 @@
     const pack = state.pack || MAIN_PACK;
     const i = state.levelIndex;
     const isLast = i >= pack.levels.length - 1;
+    const debug = debugOn();   // debug-mode clears: same screens, but nothing is saved
     // coins are awarded only on the FIRST clear (unlocked only advances then)
-    const firstClear = (i + 1) > packUnlocked(pack);
+    const firstClear = !debug && (i + 1) > packUnlocked(pack);
     let reward = 0;
     if (firstClear) {
       if (pack.kind === "main") reward = LEVEL_REWARD[i] != null ? LEVEL_REWARD[i] : DEFAULT_REWARD;
       else reward = 20 + (pack.levels[i].diff | 0) * 10;
     }
     // the hidden coin banks only if you also finish the level (Geometry Dash style)
-    let coinNote = "";
-    if (state.coinsGot.length && !levelCoinFound(pack, i)) {
+    let coinNote = debug ? " 🛠 Debug mode — nothing saved." : "";
+    if (state.coinsGot.length && !levelCoinFound(pack, i) && !debug) {
       state.levelCoins.add(coinKey(pack, i));
       saveLevelCoins();
       reward += COIN_REWARD;
       coinNote = ` 💠 Secret coin found! +${COIN_REWARD} 🪙`;
     }
     if (reward) addCoins(reward);
-    setPackUnlocked(pack, i + 1);
+    if (!debug) setPackUnlocked(pack, i + 1);
     if (isLast) {
       state.scene = "win";
       sfxWin();
@@ -1249,6 +1402,7 @@
 
   // Show the "+earned" badge and count the total up from old balance to new.
   function setupReward(earned, total) {
+    if (debugOn()) earned = 0;   // coins are ∞ in debug mode: no reward box
     if (earned > 0) {
       rewardBox.classList.remove("hidden");
       rewardEarnedNum.textContent = earned;
@@ -1291,8 +1445,7 @@
     state.shipX += FLY_SPEED * dt;
     state.camX = Math.max(0, state.shipX - SHIP_SCREEN_X);
     // trail
-    state.trail.push({ x: state.shipX, y: state.y });
-    if (state.trail.length > 18) state.trail.shift();
+    TRAILS.step(state.trail, state.shipX, state.y, dt, globalTime, trailDef(), curSkin(), { vy: state.vy, g: 1 });
     // collision with the tunnel walls at the ship's x
     const c = flyCenter(state.shipX), half = flyGap(state.shipX) / 2;
     if (state.y - COLLIDE_R < c - half || state.y + COLLIDE_R > c + half) crash();
@@ -1303,9 +1456,9 @@
     state.elapsed += dt;
     const lvl = currentLevel();
 
-    // vertical physics
-    state.vy += GRAVITY * dt;
-    if (state.held) state.vy -= THRUST * dt;
+    // vertical physics (a blue portal flips the sign of gravity AND thrust)
+    state.vy += GRAVITY * state.grav * dt;
+    if (state.held) state.vy -= THRUST * state.grav * dt;
     if (state.vy > MAX_VY) state.vy = MAX_VY;
     if (state.vy < -MAX_VY) state.vy = -MAX_VY;
     state.y += state.vy * dt;
@@ -1318,6 +1471,10 @@
     state.shipX += lvl.speed * state.fx.speedMul * dt;
     state.camX = Math.max(0, state.shipX - SHIP_SCREEN_X);
 
+    // gravity portals set gravity as the ship passes them
+    const portals = lvl.portals || [];
+    while (state.nextPortal < portals.length && portals[state.nextPortal].x <= state.shipX) passPortal(portals[state.nextPortal++]);
+
     // decoration triggers fire as the ship passes them
     const trigs = lvl.triggers || [];
     while (state.fx.nextTrig < trigs.length && trigs[state.fx.nextTrig].x <= state.shipX) fireTrigger(trigs[state.fx.nextTrig++]);
@@ -1325,8 +1482,7 @@
     if (state.race) updateRace(dt, lvl);
 
     // trail
-    state.trail.push({ x: state.shipX, y: state.y });
-    if (state.trail.length > 18) state.trail.shift();
+    TRAILS.step(state.trail, state.shipX, state.y, dt, globalTime, trailDef(), curSkin(), { vy: state.vy, g: state.grav });
 
     // assist modes
     const noclip = assistAllowed() && state.modes.noclip;
@@ -1363,6 +1519,51 @@
 
     // reached the finish
     if (state.shipX >= lvl.length) complete();
+  }
+
+  // ----- Gravity portals -------------------------------------------------
+  // Blue (g = -1) flips gravity so the ship falls up; gold (g = 1) restores it.
+  // Portals span the full height, so passing one is guaranteed.
+  const PORTAL_COL = { "-1": "#4f8cff", "1": "#ffd23a" };
+  function passPortal(p) {
+    if (p.g === state.grav) return;
+    state.grav = p.g;
+    const col = PORTAL_COL[String(p.g)];
+    for (let k = 0; k < 24; k++) {
+      const a = Math.random() * Math.PI * 2, sp = 80 + Math.random() * 220;
+      state.particles.push({ x: state.shipX, y: state.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35 + Math.random() * 0.4, max: 0.75, col, r: 2 + Math.random() * 3, float: true });
+    }
+    tone(p.g < 0 ? 520 : 390, 0, 0.14, "triangle", 0.14);
+    tone(p.g < 0 ? 780 : 560, 0.06, 0.18, "triangle", 0.12);
+  }
+  function drawPortals(lvl, camX) {
+    for (const p of lvl.portals || []) {
+      const sx = p.x - camX;
+      if (!isFinite(sx) || sx < -60 || sx > W + 60) continue;   // never let one bad item wedge the loop
+      const flip = p.g < 0, col = PORTAL_COL[String(p.g)];
+      ctx.save();
+      const g = ctx.createLinearGradient(sx - 30, 0, sx + 30, 0);   // glowing column
+      g.addColorStop(0, rgba(col, 0)); g.addColorStop(0.5, rgba(col, 0.2)); g.addColorStop(1, rgba(col, 0));
+      ctx.fillStyle = g; ctx.fillRect(sx - 30, 0, 60, H);
+      ctx.strokeStyle = rgba(col, 0.95); ctx.lineWidth = 3;          // spinning dashed capsule
+      ctx.shadowColor = col; ctx.shadowBlur = 18;
+      ctx.setLineDash([14, 10]); ctx.lineDashOffset = -globalTime * 60;
+      roundRect(sx - 16, 14, 32, H - 28, 16); ctx.stroke();
+      ctx.setLineDash([]); ctx.shadowBlur = 0;
+      ctx.fillStyle = rgba(col, 0.9);                                 // arrows: the way you'll fall
+      for (let k = 0; k < 4; k++) {
+        const flow = (globalTime * 90 * (flip ? -1 : 1) + k * 120) % 480;
+        const ay = 30 + ((flow % 480) + 480) % 480;
+        ctx.beginPath();
+        if (flip) { ctx.moveTo(sx, ay - 8); ctx.lineTo(sx + 7, ay + 4); ctx.lineTo(sx - 7, ay + 4); }
+        else { ctx.moveTo(sx, ay + 8); ctx.lineTo(sx + 7, ay - 4); ctx.lineTo(sx - 7, ay - 4); }
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.font = "bold 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = rgba(col, 0.95);
+      ctx.fillText(flip ? "FLIP" : "NORMAL", sx, 10);
+      ctx.textAlign = "left";
+      ctx.restore();
+    }
   }
 
   // ----- Decoration triggers (level creator) -----------------------------
@@ -1478,6 +1679,7 @@
       if (state.scene === "play") drawPauseButton();
     } else if (inGame) {
       const lvl = currentLevel();
+      drawPortals(lvl, camX);
       drawSpikes(lvl, camX);
       drawFinish(lvl, camX);
       if (!state.race) {
@@ -1620,11 +1822,11 @@
   function drawObstacles(obstacles, camX, t) {
     for (const s of obstacles) {
       const sx = s.x - camX;
-      if (sx + s.w < -20 || sx > W + 20) continue;
+      if (!isFinite(sx) || sx + s.w < -20 || sx > W + 20) continue;   // skip a malformed obstacle, don't throw
       const gate = s.dir === "gateTop" || s.dir === "gateBottom";
       const piston = s.dir === "launching" || s.dir === "falling";
-      const moving = gate || piston;
       const tri = spikeTri(s, t);
+      if (s.dir === "spinner") { drawSpinner(s, tri, camX); continue; }
       const px = [tri[0] - camX, tri[1], tri[2] - camX, tri[3], tri[4] - camX, tri[5]];
       const apexY = px[5], baseY = px[1];
 
@@ -1673,6 +1875,29 @@
     }
   }
 
+  // A spinner: dashed sweep ring (telegraph), hot-steel blade, riveted hub.
+  function drawSpinner(s, tri, camX) {
+    const hx = s.cx - camX, hy = s.cy, ax = tri[4] - camX, ay = tri[5];
+    ctx.save();
+    ctx.setLineDash([6, 10]); ctx.lineDashOffset = -globalTime * 30;
+    ctx.strokeStyle = "rgba(255,90,110,0.32)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(hx, hy, s.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    const g = ctx.createLinearGradient(hx, hy, ax, ay);
+    g.addColorStop(0, "#5a0f1a"); g.addColorStop(0.6, "#ff4757"); g.addColorStop(1, "#ffd6dc");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(tri[0] - camX, tri[1]); ctx.lineTo(tri[2] - camX, tri[3]); ctx.lineTo(ax, ay); ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,150,165,0.95)";
+    ctx.shadowColor = "rgba(255,71,87,0.7)"; ctx.shadowBlur = 12; ctx.stroke();
+    ctx.shadowBlur = 0;
+    const hg = ctx.createRadialGradient(hx - 3, hy - 3, 1, hx, hy, 12);
+    hg.addColorStop(0, "#6b7390"); hg.addColorStop(1, "#1a1e2c");
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(hx, hy, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#ff4757"; ctx.stroke();
+    ctx.fillStyle = "#ffd6dc"; ctx.beginPath(); ctx.arc(hx, hy, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
   function drawFinish(lvl, camX) {
     const fx = lvl.length - camX;
     if (fx < -30 || fx > W + 200) return;
@@ -1699,29 +1924,15 @@
     ctx.textAlign = "left";
   }
 
-  function drawTrail(camX) {
-    if (state.trail.length < 2) return;
-    const col = (SKINS[state.skin] || SKINS[0]).trail;
-    ctx.strokeStyle = col;
-    ctx.lineCap = "round";
-    for (let i = 1; i < state.trail.length; i++) {
-      const a = state.trail[i - 1], b = state.trail[i];
-      ctx.globalAlpha = (i / state.trail.length) * 0.5;
-      ctx.lineWidth = (i / state.trail.length) * 6;
-      ctx.beginPath();
-      ctx.moveTo(a.x - camX, a.y);
-      ctx.lineTo(b.x - camX, b.y);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  }
+  function drawTrail(camX) { TRAILS.draw(ctx, state.trail, camX, globalTime, trailDef(), curSkin()); }
 
   function drawShip() {
     const sx = state.shipX - state.camX;
     const angle = Math.max(-0.45, Math.min(0.45, state.vy / MAX_VY * 0.5));
     ctx.save();
     ctx.translate(sx, state.y);
-    ctx.rotate(angle);
+    ctx.scale(1, state.grav);        // flipped gravity: the ship flies upside down
+    ctx.rotate(angle * state.grav);  // ...but still noses toward where it's heading
     paintShip(ctx, SKINS[state.skin] || SKINS[0], state.held, globalTime);
     ctx.restore();
   }
@@ -1794,10 +2005,11 @@
             ? (lvl.dungeon ? "DUNGEON · " : `MAP ${state.levelIndex + 1} · `) + lvl.name
             : `LEVEL ${state.levelIndex + 1} · ${lvl.name}`;
     ctx.fillText(label, pad, 40);
-    if (assistActive() || (state.assisted && assistAllowed())) {   // assist tags (this run won't count)
+    if (assistActive() || (state.assisted && assistAllowed()) || debugOn()) {   // assist tags (this run won't count)
       ctx.font = "bold 12px system-ui, sans-serif";
       let tx = pad;
       const tag = (txt, col) => { ctx.fillStyle = col; ctx.fillText(txt, tx, 60); tx += ctx.measureText(txt).width + 12; };
+      if (debugOn()) tag("🛠 DEBUG", "#ffd166");
       if (state.modes.noclip) tag("👻 NOCLIP", "#9cff57");
       if (state.modes.practice) tag("🚩 PRACTICE" + (state.checkpoint ? "" : " · press C for a checkpoint"), "#b06bff");
       tag("· won't count", "rgba(232,238,252,0.55)");
@@ -1808,6 +2020,11 @@
       ctx.globalAlpha = got ? 1 : 0.35;
       ctx.fillText((n > 1 ? `${got}/${n} ` : "") + "💠", pad + ctx.measureText(label).width + 12, 40);
       ctx.globalAlpha = 1;
+    }
+    if (state.grav < 0) {                   // gravity flipped by a blue portal
+      ctx.textAlign = "center"; ctx.fillStyle = "#7fb0ff"; ctx.font = "bold 12px system-ui, sans-serif";
+      ctx.fillText("▲ GRAVITY FLIPPED ▲", W / 2, 34);
+      ctx.textAlign = "left";
     }
     if (state.race && state.race.toast > 0) {
       ctx.globalAlpha = Math.min(1, state.race.toast);
@@ -1878,7 +2095,7 @@
     levelSelectEl.innerHTML = "";
     const unlocked = packUnlocked(pack);
     pack.levels.forEach((lvl, i) => {
-      const locked = i > unlocked;
+      const locked = isLevelLocked(pack, i);
       const cleared = i < unlocked;
       const card = document.createElement("div");
       card.className = "level-card" + (locked ? " locked" : "");
@@ -1902,12 +2119,13 @@
 
   // ----- Settings --------------------------------------------------------
   const setUI = {
-    tabAccount: $("tabAccount"), tabControls: $("tabControls"),
-    panelAccount: $("panelAccount"), panelControls: $("panelControls"),
+    tabs: { account: $("tabAccount"), controls: $("tabControls"), debug: $("tabDebug") },
+    panels: { account: $("panelAccount"), controls: $("panelControls"), debug: $("panelDebug") },
     status: $("accountStatus"), nameBtn: $("nameBtn"), nameForm: $("nameForm"),
     nameInput: $("nameInput"), nameSubmit: $("nameSubmit"),
-    optBar: $("optBar"), optPct: $("optPct"), back: $("backFromSettings"),
+    optBar: $("optBar"), optPct: $("optPct"), optDebug: $("optDebug"), debugState: $("debugState"), back: $("backFromSettings"),
   };
+  const debugBadge = $("debugBadge");
   function goSettings(tab) {
     state.scene = "settings";
     state.held = false;
@@ -1918,21 +2136,36 @@
     blurActive();
   }
   function showSettingsTab(tab) {
-    const acc = tab === "account";
-    setUI.tabAccount.classList.toggle("active", acc);
-    setUI.tabControls.classList.toggle("active", !acc);
-    setUI.panelAccount.classList.toggle("hidden", !acc);
-    setUI.panelControls.classList.toggle("hidden", acc);
+    if (!setUI.tabs[tab]) tab = "account";
+    for (const k in setUI.tabs) {
+      setUI.tabs[k].classList.toggle("active", k === tab);
+      setUI.panels[k].classList.toggle("hidden", k !== tab);
+    }
   }
   function renderSettings() {
     const n = state.settings.name;
-    setUI.status.textContent = n ? `Signed in as ${n} · 🔒 names can't be changed` : "No name yet — pick one to post levels and race. Choose carefully: it can't be changed later!";
+    setUI.status.textContent = n ? `Signed in as ${n} · 🔒 names can't be changed` : "No name yet — pick one to use in Races. Choose carefully: it can't be changed later!";
     setUI.nameBtn.textContent = "✏️  Name";
     setUI.nameBtn.classList.toggle("hidden", !!n);   // locked once picked
     setUI.nameForm.classList.add("hidden");
     setUI.nameInput.value = n;
     setUI.optBar.checked = !!state.settings.showBar;
     setUI.optPct.checked = !!state.settings.showPct;
+    setUI.optDebug.checked = debugOn();
+    setUI.debugState.textContent = debugOn() ? "DEBUG MODE IS ON" : "DEBUG MODE IS OFF";
+    setUI.debugState.classList.toggle("on", debugOn());
+  }
+  // Leaving debug mode: whatever's equipped has to be something you really own.
+  function setDebug(on) {
+    state.settings.debug = !!on;
+    saveSettings();
+    if (!on) {
+      if (!isOwned(state.skin)) saveSkin(0);
+      if (!isTrailOwned(state.trailId)) { state.trailId = "classic"; storeSet(TRAIL_KEY, "classic"); }
+    }
+    updateCoinDisplays();
+    renderSettings();
+    tone(on ? 880 : 440, 0, 0.08, "triangle", 0.1);
   }
   function submitName() {
     if (state.settings.name) return;               // locked: a name is picked once
@@ -1943,9 +2176,8 @@
     sfxComplete();
     renderSettings();
   }
-  function hasAccount() { return !!state.settings.name; }
-  setUI.tabAccount.addEventListener("click", () => { ac(); showSettingsTab("account"); });
-  setUI.tabControls.addEventListener("click", () => { ac(); showSettingsTab("controls"); });
+  for (const k in setUI.tabs) setUI.tabs[k].addEventListener("click", () => { ac(); showSettingsTab(k); });
+  setUI.optDebug.addEventListener("change", () => { ac(); setDebug(setUI.optDebug.checked); });
   setUI.nameBtn.addEventListener("click", () => {
     ac();
     setUI.nameForm.classList.toggle("hidden");
@@ -2014,7 +2246,7 @@
         link.className = "map-link" + (i <= unlocked ? " done" : "");
         mapTrailEl.appendChild(link);
       }
-      const locked = i > unlocked, cleared = i < unlocked;
+      const locked = isLevelLocked(pack, i), cleared = i < unlocked;
       const node = document.createElement("div");
       node.className = "map-node" + (lvl.dungeon ? " dungeon" : "") + (locked ? " locked" : "") + (cleared ? " cleared" : "");
       node.innerHTML =
@@ -2029,12 +2261,9 @@
   }
   $("backFromMap").addEventListener("click", () => goHome());
 
-  // ----- Search: share codes (offline "posting") -------------------------
-  // There is no server, so a "posted" level is a code you copy and send to a
-  // friend; they paste it here and it shows up in their search list.
+  // ----- Search: every level, by name / world / ID / difficulty ----------
   const srchUI = {
-    input: $("searchInput"), postBtn: $("postBtn"),
-    postBox: $("postBox"), postPick: $("postPick"), postText: $("postText"), copyCode: $("copyCode"), postMsg: $("postMsg"),
+    input: $("searchInput"),
     list: $("searchList"), diffs: $("searchDiffs"), count: $("searchCount"), top: $("searchTop"),
   };
   function goSearch() {
@@ -2042,16 +2271,13 @@
     state.held = false;
     MUSIC.stop();
     hideAllOverlays();
-    srchUI.postBox.classList.add("hidden");
-    srchUI.postMsg.textContent = "";
     renderSearchDiffs();
     renderSearch();
     searchEl.classList.remove("hidden");
     blurActive();
   }
-  // Every level gets a short 5-character ID (letters + numbers) for showing and
-  // searching. The ID alone can't hold the level — there's no server behind
-  // GitHub Pages — so the full share code still carries the level data.
+  // Every custom level gets a short 5-character ID (letters + numbers) for
+  // showing on its card and searching. Derived from the level's id, so it's stable.
   const ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   function shortId(lvl) {
     if (lvl.sid && /^[A-Z0-9]{5}$/.test(lvl.sid)) return lvl.sid;
@@ -2062,56 +2288,18 @@
     lvl.sid = out;
     return out;
   }
-  function levelCode(lvl) {
-    const payload = { v: 1, sid: shortId(lvl), name: lvl.name, author: state.settings.name, length: lvl.length, diff: lvl.diff | 0, items: lvl.items,
-      created: lvl.created || 0 };
-    return "SD1." + btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-  }
-  // A share LINK is the game's URL with the code in the hash: open it and the
-  // level lands in Search. Works on GitHub Pages because nothing is stored server-side.
-  function shareLink(lvl) {
-    const base = (location.origin && location.origin !== "null" ? location.origin : "") + location.pathname;
-    return base + "#lvl=" + levelCode(lvl);
-  }
-  // accept a pasted link or a bare code
-  function codeFrom(text) {
-    text = String(text || "").trim();
-    const m = text.match(/#lvl=(SD1\.[A-Za-z0-9+/=]+)/);
-    if (m) return m[1];
-    return text.startsWith("SD1.") ? text : null;
-  }
-  function parseCode(code) {
-    code = String(code || "").trim();
-    if (!code.startsWith("SD1.")) return null;
-    try {
-      const o = JSON.parse(decodeURIComponent(escape(atob(code.slice(4)))));
-      if (!o || typeof o.name !== "string" || !isFinite(o.length) || !Array.isArray(o.items)) return null;
-      return {
-        id: "s" + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
-        sid: /^[A-Z0-9]{5}$/.test(String(o.sid || "")) ? o.sid : undefined,
-        name: o.name.slice(0, 24), author: String(o.author || "Unknown").slice(0, 16),
-        length: clamp(Math.round(o.length), ED_MIN_LEN, ED_MAX_LEN), diff: clamp(o.diff | 0, 0, DIFFS.length - 1),
-        items: o.items.filter((it) => it && typeof it === "object" && isFinite(it.x)),
-        created: isFinite(o.created) ? +o.created : 0,   // when the author built it
-        added: Date.now(),                                 // when it landed here
-        code,
-      };
-    } catch (e) { return null; }
-  }
-  // Search covers every level: built-in packs, your own creations, and shared codes.
-  // Filter by name (or author / pack) and/or by difficulty face; -1 = any difficulty.
+  // Search covers every level: the built-in packs and your own creations.
+  // Filter by name (or world / ID) and/or by difficulty face; -1 = any difficulty.
   let searchDiff = -1;
   function searchEntries() {
     const out = [];
     ALL_PACKS.forEach((pack) => pack.levels.forEach((lvl, i) => {
       const where = pack.kind === "main" ? "Level " + (i + 1) : pack.kind === "temple" ? pack.temple.name : (lvl.dungeon ? "Map · Dungeon" : "Map · Stop " + (i + 1));
       out.push({ kind: "builtin", key: "b:" + pack.id + ":" + i, name: lvl.name, diff: lvl.diff | 0, sub: lvl.subtitle, where, pack, index: i,
-        locked: i > packUnlocked(pack), haystack: (lvl.name + " " + where + " " + pack.title).toLowerCase() });
+        locked: isLevelLocked(pack, i), haystack: (lvl.name + " " + where + " " + pack.title).toLowerCase() });
     }));
     state.customLevels.forEach((lvl) => out.push({ kind: "mine", key: "m:" + lvl.id, name: lvl.name, diff: lvl.diff | 0, src: lvl, when: levelCreated(lvl),
       sub: `${lvl.length}px · ${lvl.items.length} piece${lvl.items.length === 1 ? "" : "s"}`, where: "My level · #" + shortId(lvl), haystack: (lvl.name + " my levels " + state.settings.name + " " + shortId(lvl)).toLowerCase() }));
-    state.shared.forEach((lvl) => out.push({ kind: "shared", key: "s:" + lvl.id, name: lvl.name, diff: lvl.diff | 0, src: lvl, author: lvl.author || "Unknown", when: lvl.added || lvl.created || 0,
-      sub: `${lvl.length}px · ${lvl.items.length} piece${lvl.items.length === 1 ? "" : "s"}`, where: "Shared · #" + shortId(lvl), haystack: (lvl.name + " " + (lvl.author || "") + " shared " + shortId(lvl)).toLowerCase() }));
     return out;
   }
   // when a custom level was made (older levels: decode the timestamp baked into the id)
@@ -2159,7 +2347,7 @@
       card.innerHTML =
         `<div class="num">🆕 Newest · ${escapeHtml(whenLabel(top.when))}</div>` +
         `<div class="name">${escapeHtml(top.name)}</div>` +
-        (top.author ? `<div class="author">by ${escapeHtml(top.author)}</div>` : `<div class="author">${escapeHtml(top.where)}</div>`) +
+        `<div class="author">${escapeHtml(top.where)}</div>` +
         diffBadge(top.diff) + (top.locked ? '<span class="badge locked">🔒 LOCKED</span>' : '<span class="badge ready">▶ PLAY</span>');
       wireSearchCard(card, top);
       srchUI.top.appendChild(card);
@@ -2182,93 +2370,22 @@
       card.innerHTML =
         `<div class="num">${escapeHtml(e.where)}</div>` +
         `<div class="name">${escapeHtml(e.name)}</div>` +
-        (e.author ? `<div class="author">by ${escapeHtml(e.author)}</div>` : "") +
         `<div class="desc">${escapeHtml(e.sub || "")}</div>` +
         diffBadge(e.diff) + badge +
-        (e.when ? `<div class="author">${escapeHtml(whenLabel(e.when))}</div>` : "") +
-        (e.kind === "shared" ? '<div class="card-actions"><button class="mini-btn danger" data-act="del">🗑 Remove</button></div>' : "");
+        (e.when ? `<div class="author">${escapeHtml(whenLabel(e.when))}</div>` : "");
       wireSearchCard(card, e);
       srchUI.list.appendChild(card);
     });
   }
-  // one click handler per card: the remove button, otherwise play
   function wireSearchCard(card, e) {
-    card.addEventListener("click", (ev) => {
-      const act = ev.target && ev.target.dataset ? ev.target.dataset.act : null;
-      if (act === "del") {
-        ev.stopPropagation();
-        state.shared = state.shared.filter((l) => l !== e.src);
-        saveShared();
-        renderSearch();
-        return;
-      }
+    card.addEventListener("click", () => {
       if (e.locked) return;
       ac();
       if (e.kind === "builtin") { state.pack = e.pack; startLevel(e.index, e.pack); }
-      else { state.customSrc = e.src; startCustom(e.kind === "mine" ? "list" : "search"); }
-    });
-  }
-  function renderPostPick() {
-    srchUI.postPick.innerHTML = "";
-    srchUI.postText.value = "";
-    if (!state.customLevels.length) { srchUI.postMsg.textContent = "You haven't built any levels yet — hit Create!"; return; }
-    state.customLevels.forEach((lvl) => {
-      const b = document.createElement("button");
-      b.className = "mini-btn" + (lvl.beaten ? "" : " nope");
-      b.textContent = (lvl.beaten ? "✓ " : "") + lvl.name + " #" + shortId(lvl);
-      b.title = lvl.beaten ? "Post this level" : "Beat this level first";
-      b.addEventListener("click", () => {
-        [...srchUI.postPick.children].forEach((c) => c.classList.remove("active"));
-        b.classList.add("active");
-        if (!lvl.beaten) {
-          srchUI.postText.value = "";
-          srchUI.postMsg.className = "code-msg bad";
-          srchUI.postMsg.textContent = "You have to beat your own level before you can post it.";
-          return;
-        }
-        srchUI.postText.value = shareLink(lvl);
-        srchUI.postMsg.className = "code-msg";
-        srchUI.postMsg.textContent = `Level ID #${shortId(lvl)} — copy the link below and send it to a friend. They open it and the level shows up in their Search.`;
-      });
-      srchUI.postPick.appendChild(b);
+      else { state.customSrc = e.src; startCustom("list"); }
     });
   }
   srchUI.input.addEventListener("input", renderSearch);
-  // a friend's share link (or bare code) pasted into the search box is added on the spot
-  function importCode(text) {
-    const code = codeFrom(text);
-    if (!code) return null;
-    const lvl = parseCode(code);
-    if (!lvl) return null;
-    const have = state.shared.find((l) => l.code === lvl.code);
-    if (have) return have;
-    state.shared.unshift(lvl); saveShared(); sfxComplete();
-    return lvl;
-  }
-  srchUI.input.addEventListener("input", () => {
-    const lvl = importCode(srchUI.input.value);
-    if (!lvl) return;
-    srchUI.input.value = "#" + shortId(lvl);
-    renderSearch();
-  });
-  srchUI.postBtn.addEventListener("click", () => {
-    ac();
-    if (!hasAccount()) {
-      showMessage("crash", "NAME NEEDED", "Set your name in Settings → Account to post levels.", "Go to Settings", () => goSettings("account"), true);
-      return;
-    }
-    srchUI.postBox.classList.toggle("hidden");
-    srchUI.postMsg.className = "code-msg";
-    srchUI.postMsg.textContent = "Pick one of your levels.";
-    renderPostPick();
-  });
-  srchUI.copyCode.addEventListener("click", () => {
-    const code = srchUI.postText.value;
-    if (!code) return;
-    const done = () => { srchUI.postMsg.className = "code-msg ok"; srchUI.postMsg.textContent = "Link copied! Send it to a friend."; };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done, () => { srchUI.postText.select(); done(); });
-    else { srchUI.postText.select(); try { document.execCommand("copy"); } catch (e) {} done(); }
-  });
   $("backFromSearch").addEventListener("click", () => goHome());
 
   // ----- Races -----------------------------------------------------------
@@ -2378,6 +2495,79 @@
   raceUI.roll.addEventListener("click", () => { ac(); rollRace(); renderRace(); });
   $("backFromRace").addEventListener("click", () => goHome());
 
+  // ----- Shop: Ships tab + Trails tab ------------------------------------
+  const shopUI = { title: $("shopTitle"), tabShips: $("tabShips"), tabTrails: $("tabTrails"), trailGrid: $("trailGrid") };
+  let shopTab = "ships";
+  const trailPreviews = [];   // live-animated canvases on the Trails tab (see frame())
+  function renderShop() {
+    updateCoinDisplays();
+    const ships = shopTab === "ships";
+    shopUI.tabShips.classList.toggle("active", ships);
+    shopUI.tabTrails.classList.toggle("active", !ships);
+    skinGridEl.classList.toggle("hidden", !ships);
+    shopUI.trailGrid.classList.toggle("hidden", ships);
+    shopUI.title.textContent = ships ? "CHOOSE YOUR SHIP" : "CHOOSE YOUR TRAIL";
+    if (ships) renderSkins(); else renderTrails();
+  }
+  shopUI.tabShips.addEventListener("click", () => { ac(); shopTab = "ships"; renderShop(); });
+  shopUI.tabTrails.addEventListener("click", () => { ac(); shopTab = "trails"; renderShop(); });
+
+  function renderTrails() {
+    shopUI.trailGrid.innerHTML = "";
+    trailPreviews.length = 0;
+    TRAILS.DEFS.forEach((def) => {
+      const owned = isTrailOwned(def.id), equipped = def.id === state.trailId, buyable = !owned && state.coins >= def.cost;
+      const card = document.createElement("div");
+      card.className = "skin-card trail-card" + (equipped ? " selected" : "") + (!owned ? (buyable ? " buyable" : " locked") : "");
+      const cv = document.createElement("canvas");
+      cv.width = 176; cv.height = 80;
+      const pv = TRAILS.makePreview();
+      for (let i = 0; i < 90; i++) TRAILS.stepPreview(pv, 1 / 60, def, curSkin());   // pre-roll so the trail is already flowing
+      trailPreviews.push({ cv, cc: cv.getContext("2d"), pv, def });
+      const name = document.createElement("div"); name.className = "sname"; name.textContent = def.name;
+      const desc = document.createElement("div"); desc.className = "sdesc"; desc.textContent = def.desc;
+      const tag = document.createElement("div");
+      if (equipped) { tag.className = "stag"; tag.textContent = "EQUIPPED"; }
+      else if (owned) { tag.className = "stag own"; tag.textContent = "TAP TO EQUIP"; }
+      else { tag.className = "stag cost"; tag.textContent = "🪙 " + def.cost; }
+      card.appendChild(cv); card.appendChild(name); card.appendChild(desc); card.appendChild(tag);
+      card.addEventListener("click", () => { ac(); onTrailClick(def, card); });
+      shopUI.trailGrid.appendChild(card);
+    });
+    drawTrailPreviews(0);
+  }
+  function drawTrailPreviews(dt) {
+    for (const p of trailPreviews) {
+      if (dt) TRAILS.stepPreview(p.pv, dt, p.def, curSkin());
+      p.cc.setTransform(1, 0, 0, 1, 0, 0);
+      p.cc.clearRect(0, 0, p.cv.width, p.cv.height);
+      TRAILS.drawPreview(p.cc, p.pv, 128, 40, 1.8, p.def, curSkin());
+    }
+  }
+  function onTrailClick(def, card) {
+    if (isTrailOwned(def.id)) {                    // already owned -> equip
+      state.trailId = def.id; storeSet(TRAIL_KEY, def.id);
+      renderTrails();
+    } else if (state.coins >= def.cost) {          // buy + equip
+      const before = state.coins;
+      const r = card ? card.getBoundingClientRect() : null;
+      const bx = r ? r.left + r.width / 2 : window.innerWidth / 2;
+      const by = r ? r.top + r.height / 2 : window.innerHeight / 2;
+      state.coins -= def.cost;
+      storeSet(COINS_KEY, String(state.coins));
+      state.ownedTrails.add(def.id); saveOwnedTrails();
+      state.trailId = def.id; storeSet(TRAIL_KEY, def.id);
+      sfxComplete();
+      renderTrails();
+      document.querySelectorAll(".coin-val").forEach((e) => { e.textContent = before; });
+      state.coinAnim = { from: before, to: state.coins, t: 0, dur: 0.7, shown: before, lastTick: 0, target: "pill" };
+      confettiBurst(bx, by);
+    } else {                                       // can't afford
+      sfxCrash();
+      if (card) { card.classList.remove("deny"); void card.offsetWidth; card.classList.add("deny"); }
+    }
+  }
+
   function renderSkins() {
     updateCoinDisplays();
     skinGridEl.innerHTML = "";
@@ -2466,23 +2656,27 @@
     }
   }
 
+  // home screen: the equipped ship cruises along with its equipped trail
+  const homePv = TRAILS.makePreview();
+  let homeLast = 0;
   function drawHomeShip() {
+    const dt = Math.min(0.05, Math.max(0, globalTime - homeLast));
+    homeLast = globalTime;
+    TRAILS.stepPreview(homePv, dt, trailDef(), curSkin(), 2.5);
     homeCtx.clearRect(0, 0, homeShip.width, homeShip.height);
-    homeCtx.save();
-    homeCtx.translate(homeShip.width / 2, homeShip.height / 2 + Math.sin(globalTime * 2) * 6);
-    homeCtx.rotate(Math.sin(globalTime * 1.5) * 0.12);
-    homeCtx.scale(2.7, 2.7);
-    paintShip(homeCtx, SKINS[state.skin] || SKINS[0], true, globalTime);
-    homeCtx.restore();
+    TRAILS.drawPreview(homeCtx, homePv, homeShip.width / 2 + 22, homeShip.height / 2, 2.7, trailDef(), curSkin());
   }
 
   // ----- Level creator ---------------------------------------------------
   // Users build levels from the same obstacle set as the built-in ones.
   // A stored custom level is { id, name, length, items } where each item is
   // a friendly shape that expands to game-format obstacles on play:
-  //   { kind:"spike",  dir:"bottom"|"top",           x, w, h }
-  //   { kind:"piston", dir:"launching"|"falling",    x, w, len, period }
+  //   { kind:"spike",   dir:"bottom"|"top",          x, w, h }
+  //   { kind:"piston",  dir:"launching"|"falling",   x, w, len, period }
   //   { kind:"gate",                                 x, w, gap, amp, center, period }
+  //   { kind:"spinner",                              x, y (hub), r, period, blades, spin }
+  //   { kind:"portal",                               x, g (-1 flips gravity, 1 restores) }
+  //   plus decoration triggers and secret coins, which aren't obstacles.
   // Everything autosaves to localStorage as you edit.
 
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
@@ -2491,7 +2685,18 @@
   // "fair telegraph" phasing as the built-in levels: pistons are fully
   // extended and gate holes centered exactly as the ship arrives.
   function expandItem(it, speed) {
-    if (it.kind === "trigger" || it.kind === "coin") return [];   // not obstacles
+    if (it.kind === "trigger" || it.kind === "coin" || it.kind === "portal") return [];   // not obstacles
+    if (it.kind === "spinner") {
+      // wall hubs: blade buried in the wall as the ship arrives (fair when the spin
+      // matches the wall — ceiling counter-clockwise, floor clockwise; the default).
+      // floating hubs: blades level as the ship arrives.
+      const tArr = (it.x - 120) / speed, ccw = it.spin === "ccw", wall = it.y <= 0 || it.y >= H;
+      const phase0 = wall ? (((it.y <= 0) === ccw) ? 0.25 : 0.75) : 0;
+      const phase = phase0 - tArr / it.period;
+      const out = [spinner(it.x, it.y, it.r, it.period, phase, ccw)];
+      if ((it.blades | 0) >= 2) out.push(spinner(it.x, it.y, it.r, it.period, phase + 0.5, ccw));
+      return out;
+    }
     const tArr = (it.x + it.w / 2 - 120) / speed;
     if (it.kind === "spike") return [{ x: it.x, w: it.w, h: it.h, dir: it.dir }];
     if (it.kind === "piston") {
@@ -2504,11 +2709,17 @@
     ];
   }
 
+  // same shape levels.js builds (x/w = the sweep's footprint for culling + prefilters)
+  function spinner(cx, cy, r, period, phase, ccw) {
+    return { x: cx - r, w: 2 * r, dir: "spinner", cx, cy, r, bw: 28, period, phase, ccw: !!ccw };
+  }
+
   function buildCustomLevel(src) {
     const obstacles = [];
     for (const it of src.items) obstacles.push(...expandItem(it, CUSTOM_SPEED));
     obstacles.sort((a, b) => a.x - b.x);
     const triggers = src.items.filter((it) => it.kind === "trigger").map((it) => Object.assign({}, it)).sort((a, b) => a.x - b.x);
+    const portals = src.items.filter((it) => it.kind === "portal").map((it) => ({ x: it.x, g: it.g < 0 ? -1 : 1 })).sort((a, b) => a.x - b.x);
     return {
       name: src.name || "Untitled",
       subtitle: "Custom level",
@@ -2518,6 +2729,7 @@
       length: src.length,
       obstacles,
       triggers,
+      portals,
       coins: src.items.filter((it) => it.kind === "coin").map((it) => ({ x: it.x, y: it.y })),
     };
   }
@@ -2612,15 +2824,19 @@
 
   const ED_MIN_X = 200;                            // keep a fair run-up after the start
   const ED_MIN_LEN = 1000, ED_MAX_LEN = 20000;
-  const ED_SCRUB = { y: H - 18, h: 10, pad: 16 };  // bottom scrollbar (canvas-drawn)
+  // bottom scroll slider (canvas-drawn): a big Geometry-Dash-style knob that's
+  // easy to grab with a finger. y = track center, r = knob radius, pad = side margin
+  const ED_SCRUB = { y: H - 21, r: 16, pad: 30 };
   const ED_DEFAULTS = {
     spike:  { w: 60, h: 180 },
     piston: { w: 90, len: 330, period: 2.2 },
     gate:   { w: 70, gap: 80, amp: 90, period: 3.0 },
     trigger: { w: 24, str: 5, dur: 3, spd: 1.5, col: "#ff5d8f", col2: "#1a2a6a", bg: "grid" },
     coin: { w: 24 },
+    spinner: { w: 0, r: 110, period: 2.2, blades: 2, spin: "cw" },   // w: 0 — x is the hub center
+    portal: { w: 36 },
   };
-  const ED_TITLES = { spike: "STATIC SPIKE", piston: "PISTON", gate: "GATE", coin: "SECRET COIN" };
+  const ED_TITLES = { spike: "STATIC SPIKE", piston: "PISTON", gate: "GATE", coin: "SECRET COIN", spinner: "SPINNER", portal: "PORTAL" };
   const ED_DIRS = { bottom: "FLOOR", top: "CEILING", launching: "UP", falling: "DOWN" };
   // which property rows a trigger type shows
   const TRIG_PROPS = {
@@ -2636,7 +2852,11 @@
     { id: "Len", el: "sldLen", prop: "len",    kinds: { piston: 1 },                    fmt: (v) => v + "px" },
     { id: "Gap", el: "sldGap", prop: "gap",    kinds: { gate: 1 },                      fmt: (v) => v * 2 + "px" },
     { id: "Amp", el: "sldAmp", prop: "amp",    kinds: { gate: 1 },                      fmt: (v) => v + "px" },
-    { id: "Per", el: "sldPer", prop: "period", kinds: { piston: 1, gate: 1 },           fmt: (v) => v.toFixed(1) + "s" },
+    { id: "Per", el: "sldPer", prop: "period", kinds: { piston: 1, gate: 1, spinner: 1 }, fmt: (v) => v.toFixed(1) + "s" },
+    { id: "R",   el: "sldR",   prop: "r",      kinds: { spinner: 1 },                    fmt: (v) => v + "px" },
+    { id: "Blades", el: "selBlades", prop: "blades", kinds: { spinner: 1 },              fmt: () => "" },
+    { id: "Spin", el: "selSpin", prop: "spin", kinds: { spinner: 1 }, text: true,        fmt: () => "" },
+    { id: "G",   el: "selG",   prop: "g",      kinds: { portal: 1 },                     fmt: () => "" },
     { id: "Str", el: "sldStr", prop: "str",    kinds: {}, trig: true, fmt: (v) => String(v) },
     { id: "Dur", el: "sldDur", prop: "dur",    kinds: {}, trig: true, fmt: (v) => v.toFixed(1) + "s" },
     { id: "Spd", el: "sldSpd", prop: "spd",    kinds: {}, trig: true, fmt: (v) => v.toFixed(1) + "×" },
@@ -2730,7 +2950,7 @@
   function edChanged() {
     ED.dirty = true;
     ED.built = null;
-    if (ED.lvl && ED.lvl.beaten) { ED.lvl.beaten = false; }   // edited -> beat it again before posting
+    if (ED.lvl && ED.lvl.beaten) { ED.lvl.beaten = false; }   // edited -> it's a new level, beat it again
     clearTimeout(ED.saveTimer);
     ED.saveTimer = setTimeout(() => {
       saveCustomLevels();
@@ -2747,6 +2967,8 @@
     if (!it) return hideProps();
     edUI.propsTitle.textContent = it.kind === "trigger"
       ? TRIGGER_INFO[it.type].icon + " " + TRIGGER_INFO[it.type].name
+      : it.kind === "portal" ? "PORTAL · " + (it.g < 0 ? "FLIP" : "GOLD")
+      : it.kind === "spinner" ? "SPINNER · " + (it.y <= 0 ? "CEILING" : it.y >= H ? "FLOOR" : "FLOATING")
       : ED_TITLES[it.kind] + (it.dir ? " · " + ED_DIRS[it.dir] : "");
     for (const r of ED_ROWS) {
       const on = rowApplies(r, it);
@@ -2754,7 +2976,7 @@
       if (on) {
         if (r.prop === "w") r.sld.min = it.kind === "spike" ? 16 : 30;
         r.sld.value = it[r.prop];
-        r.val.textContent = r.fmt(r.text ? it[r.prop] : +it[r.prop]);
+        if (r.val) r.val.textContent = r.fmt(r.text ? it[r.prop] : +it[r.prop]);
       }
     }
     edUI.props.classList.remove("hidden");
@@ -2780,9 +3002,22 @@
   function snap10(v) { return Math.round(v / 10) * 10; }
   function clampItemX(x, w) { return clamp(x, ED_MIN_X, Math.max(ED_MIN_X, ED.lvl.length - w)); }
 
+  // spinner hubs snap onto the ceiling/floor when dropped near them, else float clear of the walls
+  function snapHubY(wy) { return wy < 45 ? 0 : wy > H - 45 ? H : Math.round(clamp(wy, 60, H - 60)); }
+
   function makeItem(tool, wx, wy) {
     if (tool === "coin") {
       return { kind: "coin", w: 24, x: clampItemX(snap10(wx), 24), y: Math.round(clamp(wy, 30, H - 30)) };
+    }
+    if (tool === "flip" || tool === "gold") {
+      return { kind: "portal", w: 36, x: clampItemX(snap10(wx), 0), g: tool === "flip" ? -1 : 1 };
+    }
+    if (tool === "spinner") {
+      const it = Object.assign({ kind: "spinner" }, ED_DEFAULTS.spinner, ED.mem.spinner || {});
+      it.x = clampItemX(snap10(wx), 0);
+      it.y = snapHubY(wy);
+      it.spin = it.y <= 0 ? "ccw" : "cw";   // the fair direction for where it landed (change it in the panel)
+      return it;
     }
     if (TRIGGER_TYPES.includes(tool)) {
       const it = Object.assign({ kind: "trigger", type: tool }, ED_DEFAULTS.trigger, ED.mem["trigger." + tool] || {});
@@ -2811,6 +3046,11 @@
   function itemBounds(it) {
     if (it.kind === "trigger") return { x: it.x - 14, y: 96, w: 28, h: 56 };  // the flag near the top
     if (it.kind === "coin") return { x: it.x - 14, y: it.y - 14, w: 28, h: 28 };
+    if (it.kind === "portal") return { x: it.x - 18, y: 14, w: 36, h: H - 28 };   // the capsule
+    if (it.kind === "spinner") {                                                 // the sweep circle's box, clipped
+      const y0 = Math.max(0, it.y - it.r), y1 = Math.min(H, it.y + it.r);
+      return { x: it.x - it.r, y: y0, w: 2 * it.r, h: y1 - y0 };
+    }
     if (it.kind === "spike") {
       return it.dir === "bottom"
         ? { x: it.x, y: FLOOR - it.h, w: it.w, h: it.h }
@@ -2838,9 +3078,11 @@
     blurActive(); // release the name/length field so keys pan again
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
     const p = toCanvas(e);
-    if (p.y >= ED_SCRUB.y - 6) {                    // bottom scrollbar
-      ED.drag = { type: "scrub" };
-      edScrubTo(p.x);
+    if (p.y >= ED_SCRUB.y - ED_SCRUB.r - 12) {      // bottom slider: the whole strip is a grab target
+      const kx = edKnobX();
+      // grabbing the knob itself keeps your finger's offset; tapping the track jumps there
+      ED.drag = { type: "scrub", dx: Math.abs(p.x - kx) <= ED_SCRUB.r + 10 ? p.x - kx : 0 };
+      edScrubTo(p.x - ED.drag.dx);
       return;
     }
     const wx = p.x + ED.camX, wy = p.y;
@@ -2848,15 +3090,20 @@
     if (hit >= 0) {                                  // grab an existing item
       ED.sel = hit;
       const it = ED.lvl.items[hit];
-      ED.drag = { type: "item", dx: wx - it.x, dcy: it.kind === "gate" ? wy - it.center : it.kind === "coin" ? wy - it.y : 0 };
+      ED.drag = { type: "item", dx: wx - it.x, dcy: dragOffsetY(it, wy) };
       showProps();
     } else if (ED.tool !== "select") {               // place a new one and keep dragging it
       placeItem(wx, wy);
       const it = ED.lvl.items[ED.sel];
-      ED.drag = { type: "item", dx: wx - it.x, dcy: it.kind === "gate" ? wy - it.center : it.kind === "coin" ? wy - it.y : 0 };
+      ED.drag = { type: "item", dx: wx - it.x, dcy: dragOffsetY(it, wy) };
     } else {                                         // pan (or click empty = deselect)
       ED.drag = { type: "pan", px: p.x, cam0: ED.camX, moved: false };
     }
+  }
+
+  // items that can be dragged vertically remember where they were grabbed
+  function dragOffsetY(it, wy) {
+    return it.kind === "gate" ? wy - it.center : (it.kind === "coin" || it.kind === "spinner") ? wy - it.y : 0;
   }
 
   function edPointerMove(e) {
@@ -2864,7 +3111,7 @@
     ED.hover = p;
     const d = ED.drag;
     if (!d) return;
-    if (d.type === "scrub") return edScrubTo(p.x);
+    if (d.type === "scrub") return edScrubTo(p.x - d.dx);
     if (d.type === "pan") {
       if (Math.abs(p.x - d.px) > 3) d.moved = true;
       ED.camX = clamp(d.cam0 - (p.x - d.px), 0, edMaxCam());
@@ -2880,6 +3127,15 @@
     } else if (it.kind === "coin") {
       const ny = Math.round(clamp(p.y - d.dcy, 30, H - 30));
       if (ny !== it.y) { it.y = ny; edChanged(); }
+    } else if (it.kind === "spinner") {
+      const ny = snapHubY(p.y - d.dcy);
+      if (ny !== it.y) {
+        const wasWall = it.y <= 0 || it.y >= H, isWall = ny <= 0 || ny >= H;
+        it.y = ny;
+        if (isWall && (!wasWall || (ny <= 0) !== (it.spin === "ccw"))) it.spin = ny <= 0 ? "ccw" : "cw";   // keep wall hubs fair
+        showProps();
+        edChanged();
+      }
     }
   }
 
@@ -2889,10 +3145,14 @@
     if (d && d.type === "pan" && !d.moved) { ED.sel = -1; hideProps(); }
   }
 
+  // knob position <-> camera: the slider spans the whole scrollable range
+  function edKnobX() {
+    const max = edMaxCam();
+    return ED_SCRUB.pad + (max ? ED.camX / max : 0) * (W - ED_SCRUB.pad * 2);
+  }
   function edScrubTo(px) {
-    const total = ED.lvl.length + 300;
     const frac = clamp((px - ED_SCRUB.pad) / (W - ED_SCRUB.pad * 2), 0, 1);
-    ED.camX = clamp(frac * total - W / 2, 0, edMaxCam());
+    ED.camX = Math.round(frac * edMaxCam());
   }
 
   function edKeyDown(e) {
@@ -2945,9 +3205,10 @@
 
     drawFinish(lvl, camX);
 
-    // obstacles — animated exactly as they'll move in play
-    if (!ED.built) ED.built = buildCustomLevel(lvl).obstacles;
-    drawObstacles(ED.built, camX, globalTime);
+    // obstacles and portals — animated exactly as they'll move in play
+    if (!ED.built) ED.built = buildCustomLevel(lvl);
+    drawPortals(ED.built, camX);
+    drawObstacles(ED.built.obstacles, camX, globalTime);
     // decoration triggers: a flag on a dashed line
     for (const it of lvl.items) {
       if (it.kind === "trigger") drawTriggerMarker(it, camX);
@@ -2955,13 +3216,14 @@
     }
 
     // ghost preview of the item about to be placed
-    if (ED.tool !== "select" && ED.hover && !ED.drag && ED.hover.y < ED_SCRUB.y - 6) {
+    if (ED.tool !== "select" && ED.hover && !ED.drag && ED.hover.y < ED_SCRUB.y - ED_SCRUB.r - 12) {
       const wx = ED.hover.x + camX;
       if (edHitTest(wx, ED.hover.y) < 0) {
         ctx.globalAlpha = 0.4;
         const ghost = makeItem(ED.tool, wx, ED.hover.y);
         if (ghost.kind === "trigger") drawTriggerMarker(ghost, camX);
         else if (ghost.kind === "coin") drawCoin(ghost.x - camX, ghost.y, globalTime, false);
+        else if (ghost.kind === "portal") drawPortals({ portals: [ghost] }, camX);
         else drawObstacles(expandItem(ghost, CUSTOM_SPEED), camX, globalTime);
         ctx.globalAlpha = 1;
       }
@@ -2983,13 +3245,28 @@
       ctx.setLineDash([]);
     }
 
-    // bottom scrollbar
-    const total = lvl.length + 300;
-    const tw = W - ED_SCRUB.pad * 2;
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    roundRect(ED_SCRUB.pad, ED_SCRUB.y, tw, 6, 3); ctx.fill();
-    ctx.fillStyle = "rgba(70,230,255,0.7)";
-    roundRect(ED_SCRUB.pad + (camX / total) * tw, ED_SCRUB.y, Math.max(26, (W / total) * tw), 6, 3); ctx.fill();
+    // bottom slider: track, the part you've scrolled past, and a big grabbable knob
+    const tw = W - ED_SCRUB.pad * 2, kx = edKnobX(), ky = ED_SCRUB.y, kr = ED_SCRUB.r;
+    const grabbing = ED.drag && ED.drag.type === "scrub";
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    roundRect(ED_SCRUB.pad, ky - 4, tw, 8, 4); ctx.fill();
+    ctx.fillStyle = "rgba(70,230,255,0.35)";
+    roundRect(ED_SCRUB.pad, ky - 4, Math.max(8, kx - ED_SCRUB.pad), 8, 4); ctx.fill();
+    ctx.shadowColor = "rgba(70,230,255,0.65)"; ctx.shadowBlur = grabbing ? 24 : 12;
+    const kg = ctx.createRadialGradient(kx - 5, ky - 6, 2, kx, ky, kr);
+    kg.addColorStop(0, "#d8fbff"); kg.addColorStop(0.45, "#46e6ff"); kg.addColorStop(1, "#1a8fb0");
+    ctx.fillStyle = kg;
+    ctx.beginPath(); ctx.arc(kx, ky, grabbing ? kr + 2 : kr, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 2; ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.stroke();
+    ctx.fillStyle = "#04212b";                       // ‹ › grip arrows
+    ctx.beginPath(); ctx.moveTo(kx - 8, ky); ctx.lineTo(kx - 3, ky - 4.5); ctx.lineTo(kx - 3, ky + 4.5); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(kx + 8, ky); ctx.lineTo(kx + 3, ky - 4.5); ctx.lineTo(kx + 3, ky + 4.5); ctx.closePath(); ctx.fill();
+    if (grabbing) {                                  // where you are in the level
+      ctx.fillStyle = "rgba(232,238,252,0.9)"; ctx.font = "bold 11px system-ui, sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(Math.round(camX + W / 2) + " px", kx, ky - kr - 8);
+      ctx.textAlign = "left";
+    }
   }
 
   function drawTriggerMarker(it, camX) {
@@ -3187,8 +3464,10 @@
     else if (state.scene === "crash") {
       state.crashTimer += dt;
       updateParticles(dt);
+      TRAILS.update(state.trail, dt);          // let the trail's embers fade out
       if (state.crashTimer > 0.5) restartRun(); // auto-respawn (Geometry Dash style)
     } else updateParticles(dt);
+    if (state.scene === "skins" && shopTab === "trails") drawTrailPreviews(dt);
 
     // animate the level-clear coin total counting up
     if (state.coinAnim) {
@@ -3230,19 +3509,9 @@
 
   // ----- Boot ------------------------------------------------------------
   // tiny hook for headless checks (console / test harness) — no gameplay use
-  window.__shipdash = { levelCoins, freeGapAt, ALL_PACKS, state };
+  window.__shipdash = { levelCoins, freeGapAt, ALL_PACKS, state, startLevel, render, goSkins, SKINS, TRAILS };
   applyControlHints();
   if (!isOwned(state.skin)) state.skin = 0; // never start equipped on a ship you don't own
   goHome();
-  // opened from a friend's share link? add the level and jump to Search
-  (function openShareLink() {
-    if (!/#lvl=/.test(location.hash || "")) return;
-    const lvl = importCode(location.hash);
-    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
-    if (!lvl) return;
-    goSearch();
-    srchUI.input.value = "#" + shortId(lvl);
-    renderSearch();
-  })();
   requestAnimationFrame(frame);
 })();

@@ -147,20 +147,99 @@ function segGates(x0, count, gapX, w, gap, amp, period, speed, opts) {
   return { spikes: sp, end: x0 + (count - 1) * gapX + w };
 }
 
-// Stitch sections together (each: (x0, speed) => {spikes, end}) with gaps.
+/*
+ * NEW MECHANIC — GRAVITY PORTALS (levels 21+).
+ *
+ * A portal is a full-height gate at x that sets gravity as the ship passes:
+ *   g = -1  BLUE  the ship falls UP — hold to dive, release to climb
+ *   g =  1  GOLD  back to normal
+ * The physics are a perfect mirror, so any section is exactly as beatable
+ * upside down — it's the pilot's instincts that get scrambled. Sections
+ * return `portals: [{ x, g }]` alongside their spikes.
+ */
+// Wrap a section in a blue portal (with a run-up) and a gold one after it.
+function withFlip(section, lead) {
+  lead = lead == null ? 170 : lead;
+  return (x, sp) => {
+    const r = section(x + lead, sp);
+    return { spikes: r.spikes, portals: [{ x, g: -1 }].concat(r.portals || [], [{ x: r.end + 70, g: 1 }]), end: r.end + 70 };
+  };
+}
+// Zig-zag with a portal between every pair of spikes: each climb or dive
+// arrives with the controls reversed from the last one. Use an odd `count`
+// so the run ends with gravity back to normal.
+function segFlipZig(x0, count, gap, w, h, startDir) {
+  const sp = [], portals = [];
+  for (let i = 0; i < count; i++) {
+    const dir = (i % 2 === 0) ? startDir : (startDir === "bottom" ? "top" : "bottom");
+    sp.push({ x: x0 + i * gap, w, h, dir });
+    if (i < count - 1) portals.push({ x: x0 + i * gap + w + (gap - w) / 2, g: i % 2 === 0 ? -1 : 1 });
+  }
+  return { spikes: sp, portals, end: x0 + (count - 1) * gap + w };
+}
+
+/*
+ * NEW MECHANIC — SPINNERS (levels 22+).
+ *
+ * A spinner is a blade (isosceles triangle, base `bw` wide at the hub) that
+ * sweeps a circle of radius `r` around its hub once every `period` seconds.
+ * Wall hubs (on the ceiling or floor) hide the blade inside the wall for half
+ * of every turn; free-floating hubs carry two blades. x/w give the sweep's
+ * horizontal footprint so culling and collision prefilters work unchanged
+ * (see spikeTri in game.js for the geometry). Like pistons, each spinner is
+ * phased to the ship's arrival so the encounter is the same every run.
+ */
+function spinner(cx, cy, r, period, phase, ccw, bw) {
+  return { x: cx - r, w: 2 * r, dir: "spinner", cx, cy, r, bw: bw || 26, period, phase, ccw: !!ccw };
+}
+// Wall spinners alternating ceiling/floor, each facing a tall static spike on
+// the opposite wall, so the only way past is THROUGH the sweep — hug the spike
+// tip and slip by while the blade is buried in the wall. The blade tucks in
+// on the ship's side as it approaches and re-emerges behind it (ceiling hubs
+// turn counter-clockwise, floor hubs clockwise), so the window is fair.
+function segSawWall(x0, count, gapX, r, period, speed, oppH, startTop) {
+  const sp = [];
+  for (let i = 0; i < count; i++) {
+    const top = (i % 2 === 0) === !!startTop;
+    const cx = x0 + r + i * gapX;
+    const tArr = (cx - 120) / speed;
+    sp.push(spinner(cx, top ? 0 : 540, r, period, 0.25 - tArr / period, top));  // buried exactly as the ship arrives
+    sp.push({ x: cx - 70, w: 140, h: oppH, dir: top ? "bottom" : "top" });
+  }
+  return { spikes: sp, end: x0 + (count - 1) * gapX + 2 * r };
+}
+// Two-bladed spinners floating in a corridor, blades level as the ship
+// arrives. A blade can only catch a ship on the side where it swings AGAINST
+// the ship's travel, so the safe side is where the blade moves WITH you:
+// above a clockwise hub, below a counter-clockwise one. Hubs alternate.
+function segSawCorridor(x0, count, gapX, r, period, speed, corrH, hubY, startCcw) {
+  const len = (count - 1) * gapX + 2 * r + 120;
+  const sp = spikeRow(x0, x0 + len, 46, corrH, "top").concat(spikeRow(x0, x0 + len, 46, corrH, "bottom"));
+  for (let i = 0; i < count; i++) {
+    const cx = x0 + 60 + r + i * gapX, tArr = (cx - 120) / speed;
+    const ccw = (i % 2 === 0) === !!startCcw;
+    const phase = -tArr / period;                   // a(tArr) = 0: blades horizontal
+    sp.push(spinner(cx, hubY, r, period, phase, ccw, 30), spinner(cx, hubY, r, period, phase + 0.5, ccw, 30));
+  }
+  return { spikes: sp, end: x0 + len };
+}
+
+// Stitch sections together (each: (x0, speed) => {spikes, end, portals?}) with gaps.
 function composeLevel(meta, sections) {
   const trans = meta.trans || 230;
   let x = meta.intro || 380;
-  const obstacles = [];
+  const obstacles = [], portals = [];
   for (const seg of sections) {
     const r = seg(x, meta.speed);
     obstacles.push(...r.spikes);
+    if (r.portals) portals.push(...r.portals);
     x = r.end + trans;
   }
   obstacles.sort((a, b) => a.x - b.x);
+  portals.sort((a, b) => a.x - b.x);
   return {
     name: meta.name, subtitle: meta.subtitle, hint: meta.hint, diff: meta.diff || 0,
-    speed: meta.speed, length: x - trans + (meta.outro || 320), obstacles,
+    speed: meta.speed, length: x - trans + (meta.outro || 320), obstacles, portals,
   };
 }
 
@@ -513,7 +592,80 @@ const LEVELS = [
       (x) => segChaos(x, 640, 60, 4120),
     ]
   ),
+
+  // ----------------------------------------------------------------------
+  // LEVELS 21–25 — beyond the Event Horizon. Two new mechanics, GRAVITY
+  // PORTALS (blue flips you upside down, gold flips you back) and SPINNERS
+  // (blades sweeping circles out of the walls and through corridors), are
+  // layered over every earlier trick. The last three are Extreme Demons.
+  // ----------------------------------------------------------------------
+
+  // L21 — gravity portals: a flipped corridor, a flipped zig-zag, then portals between spikes.
+  composeLevel(
+    { name: "Flipside", diff: 7, subtitle: "Gravity portals", speed: 222,
+      hint: "BLUE portals flip gravity: you fall UP! Hold to dive, release to climb." },
+    [
+      (x) => segCorridor(x, 440, 200),
+      withFlip((x) => segCorridor(x, 560, 198)),
+      (x, sp) => segGates(x, 8, 250, 62, 64, 124, 2.5, sp),
+      withFlip((x) => segZigzag(x, 5, 316, 128, 396, "top")),
+      (x) => segChaos(x, 600, 62, 5101),
+      (x) => segFlipZig(x, 5, 320, 128, 392, "bottom"),
+    ]
+  ),
+  // L22 — spinners: wall blades to slip past, then two-bladed hubs in a corridor.
+  composeLevel(
+    { name: "Buzzsaw", diff: 7, subtitle: "Spinning blades", speed: 224,
+      hint: "Spinning blades! Slip past while the blade is buried in the wall." },
+    [
+      (x) => segCorridor(x, 440, 204),
+      (x, sp) => segSawWall(x, 4, 500, 260, 3.0, sp, 300, true),
+      (x, sp) => segMix(x, 6, 316, 90, 396, 376, 1.45, sp, "bottom"),
+      (x, sp) => segSawCorridor(x, 4, 280, 110, 2.2, sp, 150, 270, false),
+      (x, sp) => segGates(x, 8, 246, 62, 64, 126, 2.45, sp),
+    ]
+  ),
+  // L23 — portals everywhere: flipped gates, a portal after every spike, flipped chaos.
+  composeLevel(
+    { name: "Vertigo", diff: 8, subtitle: "Which way is down?", speed: 226,
+      hint: "Portals everywhere. Which way is down? Keep count, or you'll fall up!" },
+    [
+      (x, sp) => segGates(x, 6, 248, 62, 64, 126, 2.45, sp),
+      withFlip((x, sp) => segGates(x, 7, 246, 62, 64, 126, 2.45, sp)),
+      (x) => segFlipZig(x, 7, 314, 128, 398, "top"),
+      withFlip((x) => segChaos(x, 620, 61, 5303)),
+      withFlip((x, sp) => segMix(x, 6, 316, 90, 396, 376, 1.45, sp, "bottom")),
+    ]
+  ),
+  // L24 — spinners at speed: read the spin, pick the side, hug the tips.
+  composeLevel(
+    { name: "Sawmill", diff: 8, subtitle: "Ride with the spin", speed: 228,
+      hint: "Ride WITH the spin: pass on the side where the blade moves your way." },
+    [
+      (x, sp) => segSawCorridor(x, 5, 270, 112, 2.1, sp, 152, 270, true),
+      (x, sp) => segPistons(x, 5, 316, 88, 350, 1.7, sp, "falling"),
+      (x, sp) => segSawWall(x, 5, 480, 262, 2.9, sp, 304, false),
+      (x, sp) => segGates(x, 9, 244, 62, 62, 128, 2.4, sp),
+      (x) => segZigzag(x, 5, 312, 128, 402, "bottom"),
+      (x, sp) => segSawCorridor(x, 4, 260, 114, 2.0, sp, 156, 270, false),
+    ]
+  ),
+  // L25 — the singularity: every mechanic in the game, some of it upside down.
+  composeLevel(
+    { name: "Singularity", diff: 8, subtitle: "The edge of the universe", speed: 230,
+      hint: "Everything. All of it. Upside down. This is the edge of the universe." },
+    [
+      (x) => segCorridor(x, 420, 208),
+      withFlip((x, sp) => segGates(x, 8, 244, 62, 62, 128, 2.4, sp)),
+      (x, sp) => segSawCorridor(x, 4, 270, 112, 2.1, sp, 154, 270, true),
+      (x, sp) => segMix(x, 6, 314, 90, 398, 378, 1.4, sp, "top"),
+      withFlip((x) => segChaos(x, 600, 58, 5505)),
+      (x, sp) => segSawWall(x, 4, 480, 264, 2.8, sp, 306, true),
+      (x) => segFlipZig(x, 5, 310, 128, 404, "bottom"),
+      (x, sp) => segGates(x, 9, 242, 60, 62, 128, 2.4, sp),
+    ]
+  ),
 ];
 
 window.LEVELS = LEVELS;
-window.LEVEL_LIB = { spikeRow, makeRng, piston, segCorridor, segZigzag, segChaos, segPistons, segMix, segGates, composeLevel };
+window.LEVEL_LIB = { spikeRow, makeRng, piston, spinner, withFlip, segCorridor, segZigzag, segChaos, segPistons, segMix, segGates, segFlipZig, segSawWall, segSawCorridor, composeLevel };
