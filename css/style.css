@@ -142,8 +142,24 @@ html, body {
 .badge.ready   { color: var(--accent); }
 
 /* ---------- Home screen ---------- */
-.home-ship {
+/* The ship keeps a 220x130 slot in the layout, but its canvas is much bigger
+   and hangs off the slot to the left and above/below, so long trails
+   (Stardust, Inferno, Echo) aren't clipped at the edges. It sits behind the
+   text and buttons and ignores the mouse; game.js anchors the ship to the slot. */
+#home { isolation: isolate; }
+.home-ship-wrap {
+  position: relative;
+  z-index: -1;
   width: clamp(160px, 26vmin, 240px);
+  aspect-ratio: 220 / 130;
+  pointer-events: none;
+}
+.home-ship {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: calc(100% * 700 / 220);
   height: auto;
   filter: drop-shadow(0 8px 28px rgba(0, 0, 0, 0.5));
 }
@@ -599,9 +615,16 @@ html, body {
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(8px);
   z-index: 20;
-  animation: fade-in 0.15s ease;
+  animation: plus-in 0.15s ease;
 }
 .plus-menu.hidden { display: none; }
+/* Own keyframes: the shared fade-in animates `transform`, which would replace
+   the translateX(-50%) centering while it runs and make the menu jump left
+   when it finishes. */
+@keyframes plus-in {
+  from { opacity: 0; transform: translateX(-50%) scale(0.98); }
+  to   { opacity: 1; transform: translateX(-50%) scale(1); }
+}
 .plus-item {
   display: flex;
   align-items: center;

@@ -6,7 +6,7 @@
   <title>Ship Dash</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>" />
   <!-- ?v= busts stale caches — bump it (today's date works) whenever css/ or js/ change -->
-  <link rel="stylesheet" href="css/style.css?v=20260908d" />
+  <link rel="stylesheet" href="css/style.css?v=20260908e" />
 </head>
 <body>
   <div id="stage">
@@ -18,7 +18,7 @@
       <div id="debugBadge" class="debug-badge hidden" title="Debug mode is on (Settings → Debug)">🛠 DEBUG</div>
       <h1 class="title">SHIP&nbsp;DASH</h1>
       <p class="tagline">Fly the ship. Dodge the spikes. Reach the end.</p>
-      <canvas id="homeShip" class="home-ship" width="220" height="130"></canvas>
+      <div class="home-ship-wrap"><canvas id="homeShip" class="home-ship" width="700" height="340"></canvas></div>
       <div class="home-actions">
         <button id="skinBtn" class="btn btn-ghost btn-big">Ships &amp; Trails</button>
         <button id="playBtn" class="btn btn-big">▶&nbsp; Play</button>
@@ -254,12 +254,12 @@
     </div>
   </div>
 
-  <script src="js/difficulty.js?v=20260908d"></script>
-  <script src="js/levels.js?v=20260908d"></script>
-  <script src="js/worlds.js?v=20260908d"></script>
-  <script src="js/secretcoins.js?v=20260908d"></script>
-  <script src="js/music.js?v=20260908d"></script>
-  <script src="js/trails.js?v=20260908d"></script>
-  <script src="js/game.js?v=20260908d"></script>
+  <script src="js/difficulty.js?v=20260908e"></script>
+  <script src="js/levels.js?v=20260908e"></script>
+  <script src="js/worlds.js?v=20260908e"></script>
+  <script src="js/secretcoins.js?v=20260908e"></script>
+  <script src="js/music.js?v=20260908e"></script>
+  <script src="js/trails.js?v=20260908e"></script>
+  <script src="js/game.js?v=20260908e"></script>
 </body>
 </html>

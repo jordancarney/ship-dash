@@ -2664,7 +2664,10 @@
     homeLast = globalTime;
     TRAILS.stepPreview(homePv, dt, trailDef(), curSkin(), 2.5);
     homeCtx.clearRect(0, 0, homeShip.width, homeShip.height);
-    TRAILS.drawPreview(homeCtx, homePv, homeShip.width / 2 + 22, homeShip.height / 2, 2.7, trailDef(), curSkin());
+    // The canvas is right-aligned to its 220-wide layout slot (see .home-ship in
+    // style.css): the ship sits a little right of the slot's middle and the
+    // trail streams into the extra room on the left.
+    TRAILS.drawPreview(homeCtx, homePv, homeShip.width - 110 + 22, homeShip.height / 2, 2.7, trailDef(), curSkin());
   }
 
   // ----- Level creator ---------------------------------------------------
