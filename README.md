@@ -16,7 +16,7 @@ the end. Controls are shown on screen, so there's nothing to memorize.
 - Coins 🪙 for clearing levels — spend them on 27 ships and 8 trails (rainbow ribbon, fire,
   stardust, lightning, ghostly echoes, bubbles, confetti, hearts) that follow your ship, and
   don't miss the daily chest. The Dolphin and the Platypus are the grand prizes at 1000 coins
-  each, on a row of their own
+  each, at the end of the collection
 - A built-in level creator: place spikes, pistons, gates, spinners, gravity portals, blocks,
   wind zones and mini portals, resize them, test instantly, and play your own. A big Geometry-Dash-style knob scrolls through the
   level — easy to grab on an iPad

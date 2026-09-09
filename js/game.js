@@ -416,9 +416,9 @@
     { id: "bolt",    name: "Zap",       cost: 280, trail: "#ffe600", glow: "rgba(255,230,0,0.9)",    flame: "#fff9c4" },
     { id: "sub",     name: "Bubbles",   cost: 300, trail: "#7fd8ff", glow: "rgba(255,220,80,0.7)",   flame: "#bde9ff" },
     { id: "pirate",  name: "Corsair",   cost: 320, trail: "#d9935a", glow: "rgba(217,147,90,0.75)",  flame: "#ffd166" },
-    // --- the grand prizes: two 1000-coin ships on a row of their own (`final`) ---
-    { id: "dolphin",  name: "Dolphin",  cost: 1000, trail: "#8fe3ff", glow: "rgba(120,200,255,0.8)", flame: "#e0f7ff", final: true },
-    { id: "platypus", name: "Platypus", cost: 1000, trail: "#e8a05c", glow: "rgba(232,160,92,0.75)", flame: "#ffe0b0", final: true },
+    // --- the grand prizes: the last two ships in the collection ---
+    { id: "dolphin",  name: "Dolphin",  cost: 1000, trail: "#8fe3ff", glow: "rgba(120,200,255,0.8)", flame: "#e0f7ff" },
+    { id: "platypus", name: "Platypus", cost: 1000, trail: "#e8a05c", glow: "rgba(232,160,92,0.75)", flame: "#ffe0b0" },
   ];
 
   // Coins earned the FIRST time each level is cleared (index = level).
@@ -2187,9 +2187,6 @@
     skinGridEl.innerHTML = "";
     shipPreviews.length = 0;
     SKINS.forEach((skin, i) => {
-      if (skin.final && !(SKINS[i - 1] && SKINS[i - 1].final)) {   // the grand prizes sit alone on the last row
-        const br = document.createElement("div"); br.className = "skin-break"; skinGridEl.appendChild(br);
-      }
       const owned = isOwned(i);
       const equipped = i === state.skin;
       const buyable = !owned && state.coins >= skin.cost;
