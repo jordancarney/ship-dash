@@ -91,6 +91,7 @@ js/worlds.js    Temples and the Map, built from the same segments
 js/difficulty.js  The nine difficulty faces
 js/secretcoins.js Where each built-in level hides its secret coin
 js/music.js     Procedural per-level music
+js/ships.js     Shared vector ship art and animation
 js/trails.js    Trail effects that follow the ship
 js/game.js      Game engine (physics, rendering, input, saves)
 ```

@@ -467,534 +467,7 @@
 
   // Draw a skin at the origin, nose pointing +x. Works on any 2D context
   // (the game canvas, the home preview, and the skin picker thumbnails).
-  function paintShip(c, skin, thrusting, t) {
-    t = t || 0;
-    if (thrusting && skin.id !== "phoenix") { // engine flame (Phoenix has its own fire)
-      const flick = 9 + Math.random() * 9;
-      const fg = c.createLinearGradient(-8, 0, -8 - flick, 0);
-      fg.addColorStop(0, skin.flame);
-      fg.addColorStop(1, "rgba(255,90,40,0)");
-      c.fillStyle = fg;
-      c.beginPath(); c.moveTo(-8, -4); c.lineTo(-8 - flick, 0); c.lineTo(-8, 4); c.closePath(); c.fill();
-    }
-    c.lineWidth = 1.5;
-    c.shadowColor = skin.glow;
-    c.shadowBlur = 12;
-
-    switch (skin.id) {
-      case "saucer": {
-        const g = c.createLinearGradient(0, -2, 0, 12);
-        g.addColorStop(0, "#bdf08a"); g.addColorStop(1, "#3f9e2e");
-        c.fillStyle = g; c.strokeStyle = "#eaffd0";
-        c.beginPath(); c.ellipse(-1, 4, 16, 6, 0, 0, Math.PI * 2); c.fill(); c.stroke();
-        const dg = c.createLinearGradient(0, -9, 0, 2);
-        dg.addColorStop(0, "#eafcff"); dg.addColorStop(1, "#8fd0ff");
-        c.fillStyle = dg; c.beginPath(); c.arc(-1, 1, 8, Math.PI, 0); c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#fff7a8";
-        for (const lx of [-12, -5, 2, 9]) { c.beginPath(); c.arc(lx, 6, 1.6, 0, 7); c.fill(); }
-        break;
-      }
-      case "rocket": {
-        const bg = c.createLinearGradient(0, -7, 0, 7);
-        bg.addColorStop(0, "#ffffff"); bg.addColorStop(1, "#cfd8e8");
-        c.fillStyle = bg; c.strokeStyle = "#aeb8cc";
-        roundRectPath(c, -12, -7, 20, 14, 6); c.fill(); c.stroke();
-        c.fillStyle = "#ff5a5f"; c.strokeStyle = "#ffd0d0";
-        c.beginPath(); c.moveTo(8, -7); c.lineTo(18, 0); c.lineTo(8, 7); c.closePath(); c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#ff5a5f";
-        c.beginPath(); c.moveTo(-12, -6); c.lineTo(-18, -12); c.lineTo(-9, -2); c.closePath(); c.fill();
-        c.beginPath(); c.moveTo(-12, 6); c.lineTo(-18, 12); c.lineTo(-9, 2); c.closePath(); c.fill();
-        c.fillStyle = "#46e6ff"; c.beginPath(); c.arc(0, 0, 3.4, 0, 7); c.fill();
-        break;
-      }
-      case "stealth": {
-        const g = c.createLinearGradient(-14, 0, 16, 0);
-        g.addColorStop(0, "#2c2148"); g.addColorStop(1, "#7a4dd0");
-        c.fillStyle = g; c.strokeStyle = "#c9a8ff";
-        c.beginPath();
-        c.moveTo(16, 0); c.lineTo(-5, -3); c.lineTo(-14, -12);
-        c.lineTo(-9, 0); c.lineTo(-14, 12); c.lineTo(-5, 3); c.closePath();
-        c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#e6d4ff";
-        c.beginPath(); c.arc(4, 0, 2.4, 0, 7); c.fill();
-        break;
-      }
-      case "star": {
-        const g = c.createLinearGradient(-15, -15, 15, 15);
-        g.addColorStop(0, "#fff3b0"); g.addColorStop(1, "#ffb800");
-        c.fillStyle = g; c.strokeStyle = "#fff7d6";
-        c.beginPath();
-        for (let i = 0; i < 10; i++) {
-          const a = i * Math.PI / 5, r = (i % 2 === 0) ? 15 : 6.5;
-          const x = Math.cos(a) * r, y = Math.sin(a) * r;
-          i ? c.lineTo(x, y) : c.moveTo(x, y);
-        }
-        c.closePath(); c.fill(); c.stroke();
-        break;
-      }
-      case "ghost": {
-        c.globalAlpha = 0.92;
-        const g = c.createLinearGradient(0, -13, 0, 13);
-        g.addColorStop(0, "#f2f7ff"); g.addColorStop(1, "#9fc0ff");
-        c.fillStyle = g; c.strokeStyle = "#eaf2ff";
-        c.beginPath();
-        c.arc(0, -1, 12, Math.PI, Math.PI * 2);
-        c.lineTo(12, 11);
-        c.quadraticCurveTo(8, 7, 5, 11);
-        c.quadraticCurveTo(1, 15, -3, 11);
-        c.quadraticCurveTo(-7, 7, -12, 11);
-        c.closePath(); c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#33406a";
-        c.beginPath(); c.arc(4, -2, 2.3, 0, 7); c.fill();
-        c.beginPath(); c.arc(10, -2, 2.1, 0, 7); c.fill();
-        c.globalAlpha = 1;
-        break;
-      }
-      case "neon": {
-        c.shadowBlur = 16;
-        c.strokeStyle = "#ff4bd8"; c.lineWidth = 2.5;
-        c.fillStyle = "rgba(255,75,216,0.12)";
-        c.beginPath(); c.moveTo(16, 0); c.lineTo(-12, -11); c.lineTo(-6, 0); c.lineTo(-12, 11); c.closePath();
-        c.fill(); c.stroke();
-        c.beginPath(); c.moveTo(11, 0); c.lineTo(-7, 0); c.stroke();
-        break;
-      }
-      case "bee": {
-        c.shadowBlur = 0; c.fillStyle = "rgba(220,240,255,0.55)";
-        c.beginPath(); c.ellipse(-2, -8, 7, 3.5, -0.5, 0, 7); c.fill();
-        c.beginPath(); c.ellipse(-2, 8, 7, 3.5, 0.5, 0, 7); c.fill();
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        c.fillStyle = "#ffcf33"; c.strokeStyle = "#3a2a00";
-        c.beginPath(); c.ellipse(0, 0, 14, 8, 0, 0, 7); c.fill(); c.stroke();
-        c.shadowBlur = 0;
-        c.save(); c.beginPath(); c.ellipse(0, 0, 14, 8, 0, 0, 7); c.clip();
-        c.fillStyle = "#2a2a2a";
-        for (const sx of [-2, 4, 10]) c.fillRect(sx, -9, 3, 18);
-        c.restore();
-        c.fillStyle = "#222"; c.beginPath(); c.arc(11, -2, 1.6, 0, 7); c.fill();
-        c.beginPath(); c.moveTo(-14, 0); c.lineTo(-19, -1.5); c.lineTo(-19, 1.5); c.closePath(); c.fill();
-        break;
-      }
-      case "crystal": {
-        const g = c.createLinearGradient(-12, -10, 14, 10);
-        g.addColorStop(0, "#eaffff"); g.addColorStop(0.5, "#7af5ff"); g.addColorStop(1, "#2aa6c0");
-        c.fillStyle = g; c.strokeStyle = "#eaffff";
-        c.beginPath(); c.moveTo(15, 0); c.lineTo(0, -10); c.lineTo(-12, 0); c.lineTo(0, 10); c.closePath();
-        c.fill(); c.stroke();
-        c.shadowBlur = 0; c.strokeStyle = "rgba(255,255,255,0.6)"; c.lineWidth = 1;
-        c.beginPath(); c.moveTo(15, 0); c.lineTo(-12, 0); c.moveTo(0, -10); c.lineTo(0, 10);
-        c.moveTo(0, -10); c.lineTo(-12, 0); c.lineTo(0, 10); c.stroke();
-        c.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(t * 4));
-        c.fillStyle = "#fff"; c.beginPath(); c.arc(5, -3, 1.6, 0, 7); c.fill(); c.globalAlpha = 1;
-        break;
-      }
-      case "phoenix": {
-        c.shadowBlur = 0;
-        const fl = 12 + Math.random() * 8;
-        const fg = c.createLinearGradient(-4, 0, -4 - fl, 0);
-        fg.addColorStop(0, "#ffd24a"); fg.addColorStop(0.5, "#ff7a18"); fg.addColorStop(1, "rgba(255,60,0,0)");
-        c.fillStyle = fg; c.beginPath(); c.moveTo(-4, -7); c.lineTo(-4 - fl, 0); c.lineTo(-4, 7); c.closePath(); c.fill();
-        c.shadowColor = skin.glow; c.shadowBlur = 16;
-        const cg = c.createRadialGradient(2, 0, 1, 2, 0, 12);
-        cg.addColorStop(0, "#fff3b0"); cg.addColorStop(0.5, "#ff9f1c"); cg.addColorStop(1, "#e0440a");
-        c.fillStyle = cg; c.beginPath(); c.arc(2, 0, 11, 0, 7); c.fill();
-        c.shadowBlur = 0; c.fillStyle = "rgba(255,150,30,0.7)";
-        c.beginPath(); c.moveTo(2, -8); c.quadraticCurveTo(13, -14, 17, -3); c.quadraticCurveTo(7, -6, 2, -8); c.fill();
-        c.beginPath(); c.moveTo(2, 8); c.quadraticCurveTo(13, 14, 17, 3); c.quadraticCurveTo(7, 6, 2, 8); c.fill();
-        break;
-      }
-      case "kitty": { // space cat — round pink head, ears, whiskers
-        c.shadowBlur = 0;
-        c.strokeStyle = "#ff9ed1"; c.lineWidth = 3; c.lineCap = "round";
-        c.beginPath(); c.moveTo(-10, 2); c.quadraticCurveTo(-19, 0, -16, -9); c.stroke(); // tail
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        c.fillStyle = "#ffb3d9"; c.strokeStyle = "#ff7ab8"; c.lineWidth = 1.2;
-        c.beginPath(); c.moveTo(-7, -8); c.lineTo(-9, -16); c.lineTo(-1, -10); c.closePath(); c.fill(); c.stroke();
-        c.beginPath(); c.moveTo(7, -8); c.lineTo(10, -16); c.lineTo(2, -10); c.closePath(); c.fill(); c.stroke();
-        const g = c.createLinearGradient(0, -11, 0, 12);
-        g.addColorStop(0, "#ffe0f0"); g.addColorStop(1, "#ff9ed1");
-        c.fillStyle = g; c.strokeStyle = "#ff7ab8"; c.lineWidth = 1.4;
-        c.beginPath(); c.arc(0, 0, 12, 0, 7); c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#ff6fb0";
-        c.beginPath(); c.moveTo(-6, -9); c.lineTo(-7.5, -13.5); c.lineTo(-3, -10.5); c.closePath(); c.fill();
-        c.beginPath(); c.moveTo(6, -9); c.lineTo(7.5, -13.5); c.lineTo(3, -10.5); c.closePath(); c.fill();
-        c.fillStyle = "#3a2030";
-        c.beginPath(); c.arc(3, -1, 1.8, 0, 7); c.fill();
-        c.beginPath(); c.arc(9, -1, 1.8, 0, 7); c.fill();
-        c.fillStyle = "#ff5d8f"; c.beginPath(); c.moveTo(11.5, 1.5); c.lineTo(13.5, 0.5); c.lineTo(13.5, 2.5); c.closePath(); c.fill();
-        c.strokeStyle = "rgba(255,255,255,0.85)"; c.lineWidth = 1;
-        c.beginPath(); c.moveTo(11, 2); c.lineTo(17, 1); c.moveTo(11, 3.5); c.lineTo(17, 4.5); c.stroke();
-        break;
-      }
-      case "heart": { // winged sweetheart, point facing +x
-        c.shadowBlur = 0; c.fillStyle = "rgba(255,255,255,0.6)";
-        c.beginPath(); c.ellipse(-4, -6, 6, 3, -0.6, 0, 7); c.fill();
-        c.beginPath(); c.ellipse(-4, 6, 6, 3, 0.6, 0, 7); c.fill();
-        c.shadowColor = skin.glow; c.shadowBlur = 12;
-        const g = c.createLinearGradient(0, -10, 6, 11);
-        g.addColorStop(0, "#ff9ebd"); g.addColorStop(1, "#ff3d77");
-        c.fillStyle = g; c.strokeStyle = "#ffd0de"; c.lineWidth = 1.4;
-        c.beginPath();
-        c.moveTo(-2, 0);
-        c.quadraticCurveTo(-10, -10, -3, -10);
-        c.quadraticCurveTo(2, -10, 13, 0);
-        c.quadraticCurveTo(2, 10, -3, 10);
-        c.quadraticCurveTo(-10, 10, -2, 0);
-        c.closePath(); c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "rgba(255,255,255,0.7)";
-        c.beginPath(); c.ellipse(0, -3, 2, 3, -0.5, 0, 7); c.fill();
-        break;
-      }
-      case "robot": { // cute bot — body, visor, antenna, bolt
-        c.shadowBlur = 0;
-        c.strokeStyle = "#cfe0ff"; c.lineWidth = 1.6; c.lineCap = "round";
-        c.beginPath(); c.moveTo(0, -10); c.lineTo(-3, -16); c.stroke();
-        c.fillStyle = "#ffe14a"; c.beginPath(); c.arc(-3, -17, 2.2, 0, 7); c.fill();
-        c.fillStyle = "#5a6b8c";
-        c.beginPath(); c.moveTo(-9, -7); c.lineTo(-16, 0); c.lineTo(-9, 7); c.closePath(); c.fill();
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        const g = c.createLinearGradient(0, -11, 0, 11);
-        g.addColorStop(0, "#f1f7ff"); g.addColorStop(0.5, "#a9c6e0"); g.addColorStop(1, "#67809e");
-        c.fillStyle = g; c.strokeStyle = "#e6f1ff"; c.lineWidth = 1.4;
-        roundRectPath(c, -10, -11, 21, 22, 7); c.fill(); c.stroke();
-        c.shadowBlur = 0;
-        const vg = c.createLinearGradient(0, -6, 0, 6);
-        vg.addColorStop(0, "#0a2a3a"); vg.addColorStop(1, "#0a1626");
-        c.fillStyle = vg; roundRectPath(c, -1, -6, 11, 12, 4); c.fill();
-        c.fillStyle = "#46e6ff"; c.shadowColor = "rgba(70,230,255,0.9)"; c.shadowBlur = 8;
-        c.beginPath(); c.arc(3, 0, 2, 0, 7); c.fill();
-        c.beginPath(); c.arc(8, 0, 2, 0, 7); c.fill();
-        c.shadowBlur = 0; c.fillStyle = "#ffe14a";
-        c.beginPath(); c.moveTo(-6, -5); c.lineTo(-2, -1); c.lineTo(-5, -1); c.lineTo(-2, 5); c.lineTo(-7, 0); c.lineTo(-4, 0); c.closePath(); c.fill();
-        break;
-      }
-      case "dino": { // green T-rex head, back plates, teeth
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        c.fillStyle = "#5fc94e";
-        c.beginPath(); c.moveTo(-6, 4); c.lineTo(-18, 1); c.lineTo(-6, -3); c.closePath(); c.fill();
-        const g = c.createLinearGradient(0, -11, 0, 11);
-        g.addColorStop(0, "#a6f08a"); g.addColorStop(1, "#4fb53e");
-        c.fillStyle = g; c.strokeStyle = "#d8ffc2"; c.lineWidth = 1.3;
-        c.beginPath();
-        c.moveTo(-8, -8);
-        c.quadraticCurveTo(8, -11, 15, -3);
-        c.lineTo(15, 4);
-        c.quadraticCurveTo(8, 8, -8, 9);
-        c.closePath(); c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#2f8f2a";
-        for (const sx of [-7, -2, 3]) { c.beginPath(); c.moveTo(sx, -8); c.lineTo(sx + 2, -13); c.lineTo(sx + 4, -8); c.closePath(); c.fill(); }
-        c.fillStyle = "#fff";
-        c.beginPath(); c.moveTo(8, 5); c.lineTo(10, 8); c.lineTo(12, 5); c.closePath(); c.fill();
-        c.beginPath(); c.moveTo(12, 5); c.lineTo(13.5, 7.5); c.lineTo(15, 5); c.closePath(); c.fill();
-        c.beginPath(); c.arc(7, -3, 2.6, 0, 7); c.fill();
-        c.fillStyle = "#16320f"; c.beginPath(); c.arc(8, -3, 1.3, 0, 7); c.fill();
-        break;
-      }
-      case "shark": { // grey shark — dorsal + tail fin, toothy grin
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        c.fillStyle = "#6f93b0";
-        c.beginPath(); c.moveTo(-9, 0); c.lineTo(-18, -7); c.lineTo(-15, 0); c.lineTo(-18, 7); c.closePath(); c.fill();
-        c.beginPath(); c.moveTo(-3, -8); c.lineTo(0, -16); c.lineTo(5, -8); c.closePath(); c.fill();
-        const g = c.createLinearGradient(0, -9, 0, 9);
-        g.addColorStop(0, "#bcd4e6"); g.addColorStop(0.55, "#7f9fb8"); g.addColorStop(1, "#5a7790");
-        c.fillStyle = g; c.strokeStyle = "#dcebf5"; c.lineWidth = 1.2;
-        c.beginPath();
-        c.moveTo(-10, 0);
-        c.quadraticCurveTo(-4, -10, 8, -7);
-        c.quadraticCurveTo(16, -4, 16, 0);
-        c.quadraticCurveTo(16, 4, 8, 7);
-        c.quadraticCurveTo(-4, 10, -10, 0);
-        c.closePath(); c.fill(); c.stroke();
-        c.shadowBlur = 0;
-        c.strokeStyle = "#2c3e50"; c.lineWidth = 1.4;
-        c.beginPath(); c.moveTo(7, 5); c.quadraticCurveTo(13, 5, 16, 2); c.stroke();
-        c.fillStyle = "#fff";
-        for (const tx of [9, 12]) { c.beginPath(); c.moveTo(tx, 4.5); c.lineTo(tx + 1, 7); c.lineTo(tx + 2, 4.5); c.closePath(); c.fill(); }
-        c.fillStyle = "#0a1622"; c.beginPath(); c.arc(9, -2, 1.6, 0, 7); c.fill();
-        c.strokeStyle = "rgba(40,60,80,0.6)"; c.lineWidth = 1;
-        c.beginPath(); c.moveTo(2, -3); c.lineTo(1, 3); c.moveTo(5, -3); c.lineTo(4, 3); c.stroke();
-        break;
-      }
-      case "dragon": { // green dragon head, horn, bat wing
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        c.fillStyle = "rgba(60,180,120,0.85)";
-        c.beginPath(); c.moveTo(-4, -3); c.lineTo(-14, -13); c.lineTo(-10, -2); c.lineTo(-16, -4); c.lineTo(-6, 4); c.closePath(); c.fill();
-        c.strokeStyle = "#3fae74"; c.lineWidth = 3; c.lineCap = "round";
-        c.beginPath(); c.moveTo(-6, 4); c.quadraticCurveTo(-17, 6, -14, 12); c.stroke();
-        const g = c.createLinearGradient(0, -10, 0, 10);
-        g.addColorStop(0, "#8df0b8"); g.addColorStop(1, "#3aa56a");
-        c.fillStyle = g; c.strokeStyle = "#d6ffe6"; c.lineWidth = 1.3;
-        c.beginPath();
-        c.moveTo(-8, -6);
-        c.quadraticCurveTo(6, -10, 14, -5);
-        c.lineTo(15, 1);
-        c.quadraticCurveTo(11, 4, 6, 3);
-        c.quadraticCurveTo(10, 8, 4, 8);
-        c.quadraticCurveTo(-6, 8, -8, -6);
-        c.closePath(); c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#ffe6a8";
-        c.beginPath(); c.moveTo(-3, -7); c.lineTo(1, -15); c.lineTo(3, -6); c.closePath(); c.fill();
-        c.fillStyle = "#fff"; c.beginPath(); c.arc(6, -3, 2.4, 0, 7); c.fill();
-        c.fillStyle = "#0d2a18"; c.beginPath(); c.arc(7, -3, 1.2, 0, 7); c.fill();
-        c.fillStyle = "#1f6b42"; c.beginPath(); c.arc(13, 0, 1, 0, 7); c.fill();
-        break;
-      }
-      case "rainbow": { // dart filled with rainbow bands
-        c.shadowColor = skin.glow; c.shadowBlur = 12;
-        const bands = ["#ff4d4d", "#ff9f1c", "#ffe14a", "#5dd35d", "#46b6ff", "#9b6bff"];
-        c.save();
-        c.beginPath(); c.moveTo(15, 0); c.lineTo(-12, -10); c.lineTo(-6, 0); c.lineTo(-12, 10); c.closePath();
-        c.strokeStyle = "#ffffff"; c.lineWidth = 1.5; c.stroke();
-        c.clip();
-        const n = bands.length;
-        for (let i = 0; i < n; i++) {
-          c.fillStyle = bands[i];
-          c.fillRect(-12, -10 + (20 * i / n), 28, 20 / n + 0.6);
-        }
-        c.restore();
-        c.shadowBlur = 0; c.fillStyle = "rgba(255,255,255,0.9)";
-        c.beginPath(); c.arc(2, 0, 2.4, 0, 7); c.fill();
-        break;
-      }
-      case "alien": { // UFO with a little green alien + tractor beam
-        c.shadowBlur = 0;
-        const beam = c.createLinearGradient(0, 4, 0, 16);
-        beam.addColorStop(0, "rgba(182,255,90,0.5)"); beam.addColorStop(1, "rgba(182,255,90,0)");
-        c.fillStyle = beam;
-        c.beginPath(); c.moveTo(-5, 4); c.lineTo(5, 4); c.lineTo(11, 15); c.lineTo(-11, 15); c.closePath(); c.fill();
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        const g = c.createLinearGradient(0, -2, 0, 7);
-        g.addColorStop(0, "#cfd8e8"); g.addColorStop(1, "#7b8aa6");
-        c.fillStyle = g; c.strokeStyle = "#eef3ff"; c.lineWidth = 1.2;
-        c.beginPath(); c.ellipse(0, 4, 15, 5, 0, 0, 7); c.fill(); c.stroke();
-        c.shadowBlur = 0;
-        const dg = c.createLinearGradient(0, -10, 0, 4);
-        dg.addColorStop(0, "rgba(180,240,255,0.85)"); dg.addColorStop(1, "rgba(120,200,230,0.5)");
-        c.fillStyle = dg; c.beginPath(); c.arc(0, 2, 9, Math.PI, 0); c.fill();
-        c.strokeStyle = "rgba(220,245,255,0.9)"; c.stroke();
-        c.fillStyle = "#9be05a"; c.beginPath(); c.ellipse(2, -1, 4.5, 5.5, 0, 0, 7); c.fill();
-        c.fillStyle = "#10220a";
-        c.beginPath(); c.ellipse(3.6, -1, 1.4, 2.2, -0.3, 0, 7); c.fill();
-        c.beginPath(); c.ellipse(0.6, -1, 1.2, 2, 0.3, 0, 7); c.fill();
-        c.fillStyle = "#ffe14a"; c.shadowColor = "#ffe14a"; c.shadowBlur = 6;
-        for (const lx of [-11, -6, 6, 11]) { c.beginPath(); c.arc(lx, 4.5, 1.3, 0, 7); c.fill(); }
-        c.shadowBlur = 0;
-        break;
-      }
-      case "gold": { // sleek golden jet with sparkles
-        c.shadowColor = skin.glow; c.shadowBlur = 16;
-        const g = c.createLinearGradient(-12, -10, 15, 10);
-        g.addColorStop(0, "#fff6c0"); g.addColorStop(0.5, "#ffcf33"); g.addColorStop(1, "#c98a00");
-        c.fillStyle = g; c.strokeStyle = "#fff2b0"; c.lineWidth = 1.6;
-        c.beginPath();
-        c.moveTo(16, 0);
-        c.lineTo(-6, -6); c.lineTo(-13, -11); c.lineTo(-8, -2);
-        c.lineTo(-13, 0);
-        c.lineTo(-8, 2); c.lineTo(-13, 11); c.lineTo(-6, 6);
-        c.closePath(); c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#5a3a00";
-        c.beginPath(); c.ellipse(3, 0, 3, 2, 0, 0, 7); c.fill();
-        c.fillStyle = "#fff";
-        const tw = Math.abs(Math.sin(t * 5));
-        c.globalAlpha = 0.5 + 0.5 * tw; sparkle(c, 9, -3, 2.6);
-        c.globalAlpha = 0.4 + 0.5 * (1 - tw); sparkle(c, -2, 4, 2);
-        c.globalAlpha = 1;
-        break;
-      }
-      case "unicorn": { // white unicorn, golden horn, rainbow mane & tail
-        c.shadowBlur = 0;
-        const mane = ["#ff5d8f", "#ff9f1c", "#ffe14a", "#5dd35d", "#46b6ff", "#9b6bff"];
-        c.lineWidth = 2.4; c.lineCap = "round";
-        for (let i = 0; i < mane.length; i++) {
-          c.strokeStyle = mane[i];
-          c.beginPath();
-          c.moveTo(-2, -7 + i * 1.0);
-          c.quadraticCurveTo(-12 - i, -2 + i * 1.2, -15 - i * 0.5, 8 + i * 0.7);
-          c.stroke();
-        }
-        for (let i = 0; i < mane.length; i++) {
-          c.strokeStyle = mane[i];
-          c.beginPath();
-          c.moveTo(-7, 3 + i * 0.6);
-          c.quadraticCurveTo(-17, 6 + i, -15 - i * 0.4, 13 + i * 0.5);
-          c.stroke();
-        }
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        const g = c.createLinearGradient(0, -8, 0, 12);
-        g.addColorStop(0, "#ffffff"); g.addColorStop(1, "#ffe0f3");
-        c.fillStyle = g; c.strokeStyle = "#ffd0ec"; c.lineWidth = 1.3;
-        c.beginPath();
-        c.moveTo(-6, -6);
-        c.quadraticCurveTo(6, -9, 13, -2);
-        c.lineTo(14, 4);
-        c.quadraticCurveTo(9, 8, 4, 7);
-        c.quadraticCurveTo(-4, 8, -6, -6);
-        c.closePath(); c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#fff0fb";
-        c.beginPath(); c.moveTo(-3, -6); c.lineTo(-5, -12); c.lineTo(1, -7); c.closePath(); c.fill();
-        c.fillStyle = "#ffd54a"; c.strokeStyle = "#c98a00"; c.lineWidth = 0.8;
-        c.beginPath(); c.moveTo(3, -7); c.lineTo(6, -18); c.lineTo(8, -6); c.closePath(); c.fill();
-        c.beginPath(); c.moveTo(4, -9); c.lineTo(7, -9); c.moveTo(4.6, -12); c.lineTo(7, -12); c.moveTo(5.2, -15); c.lineTo(6.8, -15); c.stroke();
-        c.fillStyle = "#3a2030"; c.beginPath(); c.arc(7, -1, 1.7, 0, 7); c.fill();
-        c.fillStyle = "#fff"; c.beginPath(); c.arc(7.6, -1.6, 0.6, 0, 7); c.fill();
-        c.fillStyle = "#e89ec8"; c.beginPath(); c.arc(12.5, 3, 0.9, 0, 7); c.fill();
-        c.fillStyle = "#fff";
-        const tw = Math.abs(Math.sin(t * 4));
-        c.globalAlpha = 0.5 + 0.5 * tw; sparkle(c, 11, -9, 3);
-        c.globalAlpha = 0.4 + 0.5 * (1 - tw); sparkle(c, -1, -10, 2);
-        c.globalAlpha = 1;
-        break;
-      }
-      case "duck": { // rubber duck — round yellow body, orange beak, tiny wing
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        const g = c.createLinearGradient(0, -12, 0, 11);
-        g.addColorStop(0, "#fff28a"); g.addColorStop(1, "#ffc21a");
-        c.fillStyle = g; c.strokeStyle = "#e0a000"; c.lineWidth = 1.2;
-        c.beginPath(); c.ellipse(-4, 3, 12, 8, 0, 0, 7); c.fill(); c.stroke();                 // body
-        c.beginPath(); c.arc(6, -5, 7, 0, 7); c.fill(); c.stroke();                            // head
-        c.shadowBlur = 0;
-        c.fillStyle = "#ff8f1f"; c.strokeStyle = "#d96d00";
-        c.beginPath(); c.moveTo(12, -6); c.lineTo(19.5, -3.5); c.lineTo(12, -1); c.closePath(); c.fill(); c.stroke(); // beak
-        c.fillStyle = "#ffd84a"; c.beginPath(); c.ellipse(-6, 3, 6, 3.5, -0.4, 0, 7); c.fill(); // wing
-        c.fillStyle = "#ffcf5a"; c.beginPath(); c.moveTo(-14, 1); c.lineTo(-19, -5); c.lineTo(-15, 5); c.closePath(); c.fill(); // tail
-        c.fillStyle = "#1a1a1a"; c.beginPath(); c.arc(8, -7, 1.6, 0, 7); c.fill();             // eye
-        c.fillStyle = "#fff"; c.beginPath(); c.arc(8.6, -7.6, 0.6, 0, 7); c.fill();
-        break;
-      }
-      case "skull": { // skull — glowing red eye sockets, toothy jaw
-        c.shadowColor = skin.glow; c.shadowBlur = 12;
-        const g = c.createLinearGradient(0, -13, 0, 12);
-        g.addColorStop(0, "#ffffff"); g.addColorStop(1, "#aeb8cc");
-        c.fillStyle = g; c.strokeStyle = "#e9eef8"; c.lineWidth = 1.3;
-        c.beginPath(); c.arc(0, -2, 11.5, 0, 7); c.fill(); c.stroke();                         // cranium
-        roundRectPath(c, -7, 4, 14, 8, 3); c.fill(); c.stroke();                               // jaw
-        c.shadowBlur = 0;
-        c.fillStyle = "#12061a";
-        c.beginPath(); c.ellipse(-4.5, -3, 3.4, 4, 0.2, 0, 7); c.fill();                        // sockets
-        c.beginPath(); c.ellipse(4.5, -3, 3.4, 4, -0.2, 0, 7); c.fill();
-        c.beginPath(); c.moveTo(0, 1.5); c.lineTo(-2, 5); c.lineTo(2, 5); c.closePath(); c.fill(); // nose
-        const glow = 0.6 + 0.4 * Math.sin(t * 6);
-        c.fillStyle = "#ff3b3b"; c.shadowColor = "#ff3b3b"; c.shadowBlur = 8 * glow;
-        c.beginPath(); c.arc(-4.5, -2.5, 1.5, 0, 7); c.fill();
-        c.beginPath(); c.arc(4.5, -2.5, 1.5, 0, 7); c.fill();
-        c.shadowBlur = 0;
-        c.strokeStyle = "#5a6478"; c.lineWidth = 1;                                            // teeth
-        for (const tx of [-4, -1.3, 1.3, 4]) { c.beginPath(); c.moveTo(tx, 6); c.lineTo(tx, 11); c.stroke(); }
-        c.beginPath(); c.moveTo(-7, 8); c.lineTo(7, 8); c.stroke();
-        break;
-      }
-      case "bolt": { // lightning bolt — electric yellow with crackling sparks
-        c.shadowColor = skin.glow; c.shadowBlur = 16;
-        const g = c.createLinearGradient(-16, 0, 17, 0);
-        g.addColorStop(0, "#fff9c4"); g.addColorStop(0.5, "#ffe600"); g.addColorStop(1, "#ffb300");
-        c.fillStyle = g; c.strokeStyle = "#fffde7"; c.lineWidth = 1.4;
-        c.beginPath();
-        c.moveTo(17, 0); c.lineTo(1, -3); c.lineTo(5, -11); c.lineTo(-16, -1);
-        c.lineTo(-3, 3); c.lineTo(-8, 11); c.closePath();
-        c.fill(); c.stroke();
-        c.shadowBlur = 0;
-        c.strokeStyle = "#e0f7ff"; c.lineWidth = 1.2; c.lineCap = "round";
-        const ph = Math.floor(t * 14);                                                          // sparks flicker
-        for (let i = 0; i < 3; i++) {
-          const seed = (ph * 7 + i * 13) % 17, ang = seed / 17 * Math.PI * 2, rr = 12 + (seed % 5);
-          const sx = Math.cos(ang) * rr, sy = Math.sin(ang) * rr * 0.7;
-          c.globalAlpha = 0.5 + 0.5 * ((seed % 3) / 2);
-          c.beginPath(); c.moveTo(sx, sy); c.lineTo(sx + 3, sy - 3); c.lineTo(sx + 5, sy + 1); c.stroke();
-        }
-        c.globalAlpha = 1;
-        break;
-      }
-      case "sub": { // submarine — porthole, periscope, spinning propeller
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        const g = c.createLinearGradient(0, -8, 0, 8);
-        g.addColorStop(0, "#ffe66d"); g.addColorStop(1, "#e0a400");
-        c.fillStyle = g; c.strokeStyle = "#fff3b0"; c.lineWidth = 1.3;
-        roundRectPath(c, -13, -7, 28, 14, 7); c.fill(); c.stroke();                            // hull
-        c.fillStyle = "#f4c430"; roundRectPath(c, -6, -13, 10, 7, 2); c.fill(); c.stroke();    // tower
-        c.shadowBlur = 0;
-        c.strokeStyle = "#f4c430"; c.lineWidth = 2; c.lineCap = "round";
-        c.beginPath(); c.moveTo(-3, -13); c.lineTo(-3, -17); c.lineTo(1, -17); c.stroke();     // periscope
-        c.fillStyle = "#0a2a3a"; c.strokeStyle = "#fff"; c.lineWidth = 1.2;
-        c.beginPath(); c.arc(5, 0, 3.6, 0, 7); c.fill(); c.stroke();                           // porthole
-        c.fillStyle = "#46e6ff"; c.beginPath(); c.arc(6, -1, 1.2, 0, 7); c.fill();
-        c.strokeStyle = "#c98a00"; c.lineWidth = 1; c.beginPath(); c.moveTo(-4, -5); c.lineTo(-4, 5); c.stroke();
-        c.fillStyle = "#8a6d1f"; c.fillRect(-16, -1.5, 3, 3);                                  // propeller
-        c.fillStyle = "#b0b8c8"; c.beginPath(); c.ellipse(-17, 0, 1.6, 7 * Math.abs(Math.cos(t * 20)) + 0.5, 0, 0, 7); c.fill();
-        break;
-      }
-      case "pirate": { // pirate ship — wooden hull, billowing sail, skull flag
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        const hull = c.createLinearGradient(0, 1, 0, 12);
-        hull.addColorStop(0, "#a5612c"); hull.addColorStop(1, "#5a2e0f");
-        c.fillStyle = hull; c.strokeStyle = "#d9935a"; c.lineWidth = 1.2;
-        c.beginPath(); c.moveTo(-15, 2); c.lineTo(16, 2); c.lineTo(11, 11); c.lineTo(-11, 11); c.closePath(); c.fill(); c.stroke(); // hull
-        c.shadowBlur = 0;
-        c.fillStyle = "#ffe14a"; for (const px of [-8, -2, 4]) { c.beginPath(); c.arc(px, 6.5, 1.2, 0, 7); c.fill(); } // portholes
-        c.strokeStyle = "#5a2e0f"; c.lineWidth = 1.6; c.beginPath(); c.moveTo(0, 2); c.lineTo(0, -16); c.stroke(); // mast
-        const sail = c.createLinearGradient(0, -14, 0, 0);
-        sail.addColorStop(0, "#ffffff"); sail.addColorStop(1, "#cfd6e6");
-        c.fillStyle = sail; c.strokeStyle = "#e9eef8"; c.lineWidth = 1;
-        c.beginPath(); c.moveTo(1, -14); c.quadraticCurveTo(13, -8, 1, -1); c.closePath(); c.fill(); c.stroke(); // sail
-        c.fillStyle = "#111"; c.beginPath(); c.moveTo(0, -16.5); c.lineTo(-8, -14.5); c.lineTo(0, -12.5); c.closePath(); c.fill(); // flag
-        c.fillStyle = "#fff"; c.beginPath(); c.arc(-4, -14.5, 1.1, 0, 7); c.fill();           // skull
-        c.fillStyle = "#ffe14a"; c.beginPath(); c.moveTo(16, 2); c.lineTo(19.5, -1.5); c.lineTo(17.5, 3); c.closePath(); c.fill(); // bow figure
-        break;
-      }
-      case "dolphin": { // dolphin — sleek grey-blue body, dorsal fin, flukes, a smile
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        c.fillStyle = "#6f9fc4"; c.strokeStyle = "#d6ecfb"; c.lineWidth = 1.1;
-        c.beginPath(); c.moveTo(-12, 0); c.lineTo(-20, -8); c.lineTo(-17, 0); c.lineTo(-20, 8); c.closePath(); c.fill(); c.stroke(); // flukes
-        c.beginPath(); c.moveTo(-3, -6); c.quadraticCurveTo(0, -15, 6, -7); c.closePath(); c.fill(); c.stroke();               // dorsal fin
-        const g = c.createLinearGradient(0, -8, 0, 8);
-        g.addColorStop(0, "#8fc0e6"); g.addColorStop(0.55, "#b9dcf2"); g.addColorStop(1, "#eef8ff");
-        c.fillStyle = g; c.strokeStyle = "#e6f4ff"; c.lineWidth = 1.2;
-        c.beginPath();
-        c.moveTo(-14, 0);
-        c.quadraticCurveTo(-6, -9, 6, -7);
-        c.quadraticCurveTo(14, -5, 19, -1);                                                  // rostrum
-        c.quadraticCurveTo(14, 4, 6, 6);
-        c.quadraticCurveTo(-6, 9, -14, 0);
-        c.closePath(); c.fill(); c.stroke();
-        c.shadowBlur = 0;
-        c.fillStyle = "#6f9fc4"; c.beginPath(); c.moveTo(1, 4); c.quadraticCurveTo(-4, 11, -8, 8); c.quadraticCurveTo(-4, 5, 1, 4); c.fill(); // flipper
-        c.strokeStyle = "#3d6a8f"; c.lineWidth = 1.2; c.lineCap = "round";
-        c.beginPath(); c.moveTo(10, 2); c.quadraticCurveTo(15, 3, 18, 0); c.stroke();          // smile
-        c.fillStyle = "#0a1622"; c.beginPath(); c.arc(9, -2.5, 1.7, 0, 7); c.fill();           // eye
-        c.fillStyle = "#fff"; c.beginPath(); c.arc(9.6, -3.1, 0.6, 0, 7); c.fill();
-        break;
-      }
-      case "platypus": { // platypus — brown body, duck bill, paddle tail, webbed feet
-        c.shadowColor = skin.glow; c.shadowBlur = 10;
-        c.fillStyle = "#4e2f18"; c.strokeStyle = "#8a5a32"; c.lineWidth = 1.1;
-        c.beginPath(); c.ellipse(-16, 1, 7, 4.5, 0, 0, 7); c.fill(); c.stroke();               // paddle tail
-        const g = c.createLinearGradient(0, -9, 0, 9);
-        g.addColorStop(0, "#a8733f"); g.addColorStop(1, "#6b4423");
-        c.fillStyle = g; c.strokeStyle = "#d9a06a"; c.lineWidth = 1.2;
-        c.beginPath(); c.ellipse(-2, 0, 13, 8, 0, 0, 7); c.fill(); c.stroke();                  // body
-        c.shadowBlur = 0;
-        c.fillStyle = "#e8a05c"; c.strokeStyle = "#b8743a"; c.lineWidth = 1;
-        for (const fx of [-7, 2]) { c.beginPath(); c.ellipse(fx, 8, 4, 2.2, 0, 0, 7); c.fill(); c.stroke(); } // webbed feet
-        roundRectPath(c, 8, -4, 13, 7, 3.5); c.fill(); c.stroke();                             // bill
-        c.strokeStyle = "#b8743a"; c.beginPath(); c.moveTo(9, -0.5); c.lineTo(20, -0.5); c.stroke();
-        c.fillStyle = "#b8743a"; c.beginPath(); c.arc(17, -2.5, 0.7, 0, 7); c.fill();          // nostril
-        c.fillStyle = "#1a1a1a"; c.beginPath(); c.arc(5, -3.5, 1.6, 0, 7); c.fill();           // eye
-        c.fillStyle = "#fff"; c.beginPath(); c.arc(5.6, -4.1, 0.6, 0, 7); c.fill();
-        break;
-      }
-      default: { // "dart"
-        const g = c.createLinearGradient(-12, -10, 15, 10);
-        g.addColorStop(0, "#9af6ff"); g.addColorStop(1, "#1e9fc0");
-        c.fillStyle = g; c.strokeStyle = "#eafcff";
-        c.beginPath(); c.moveTo(15, 0); c.lineTo(-12, -9); c.lineTo(-6, 0); c.lineTo(-12, 9); c.closePath();
-        c.fill(); c.stroke();
-        c.shadowBlur = 0; c.fillStyle = "#04212b";
-        c.beginPath(); c.arc(2, 0, 3, 0, 7); c.fill();
-      }
-    }
-    c.shadowBlur = 0;
-    c.globalAlpha = 1;
-    c.lineWidth = 1;
-  }
+  const paintShip = window.SHIPS.paint;
 
   // ----- Audio (tiny WebAudio SFX, no files) -----------------------------
   let audioCtx = null;
@@ -2629,6 +2102,7 @@
   // ----- Shop: Ships tab + Trails tab ------------------------------------
   const shopUI = { title: $("shopTitle"), tabShips: $("tabShips"), tabTrails: $("tabTrails"), trailGrid: $("trailGrid") };
   let shopTab = "ships";
+  const shipPreviews = [];
   const trailPreviews = [];   // live-animated canvases on the Trails tab (see frame())
   function renderShop() {
     updateCoinDisplays();
@@ -2651,7 +2125,7 @@
       const card = document.createElement("div");
       card.className = "skin-card trail-card" + (equipped ? " selected" : "") + (!owned ? (buyable ? " buyable" : " locked") : "");
       const cv = document.createElement("canvas");
-      cv.width = 176; cv.height = 80;
+      cv.width = 352; cv.height = 160;
       const pv = TRAILS.makePreview();
       for (let i = 0; i < 90; i++) TRAILS.stepPreview(pv, 1 / 60, def, curSkin());   // pre-roll so the trail is already flowing
       trailPreviews.push({ cv, cc: cv.getContext("2d"), pv, def });
@@ -2672,7 +2146,8 @@
       if (dt) TRAILS.stepPreview(p.pv, dt, p.def, curSkin());
       p.cc.setTransform(1, 0, 0, 1, 0, 0);
       p.cc.clearRect(0, 0, p.cv.width, p.cv.height);
-      TRAILS.drawPreview(p.cc, p.pv, 128, 40, 1.8, p.def, curSkin());
+      p.cc.scale(2, 2);
+      TRAILS.drawPreview(p.cc, p.pv, 132, 43, 1.55, p.def, curSkin());
     }
   }
   function onTrailClick(def, card) {
@@ -2699,9 +2174,18 @@
     }
   }
 
+  function drawShipPreview({ cv, cc, skin }) {
+    cc.setTransform(1, 0, 0, 1, 0, 0);
+    cc.clearRect(0, 0, cv.width, cv.height);
+    cc.save(); cc.translate(116, 76); cc.scale(4, 4);
+    paintShip(cc, skin, false, globalTime);
+    cc.restore();
+  }
+
   function renderSkins() {
     updateCoinDisplays();
     skinGridEl.innerHTML = "";
+    shipPreviews.length = 0;
     SKINS.forEach((skin, i) => {
       if (skin.final && !(SKINS[i - 1] && SKINS[i - 1].final)) {   // the grand prizes sit alone on the last row
         const br = document.createElement("div"); br.className = "skin-break"; skinGridEl.appendChild(br);
@@ -2714,13 +2198,11 @@
         (equipped ? " selected" : "") +
         (!owned ? (buyable ? " buyable" : " locked") : "");
       const cv = document.createElement("canvas");
-      cv.width = 116; cv.height = 72;
+      cv.width = 232; cv.height = 144;
+      cv.style.width = "116px"; cv.style.height = "72px";
       const cc = cv.getContext("2d");
-      cc.save();
-      cc.translate(58, 38);
-      cc.scale(2, 2);
-      paintShip(cc, skin, true, globalTime);
-      cc.restore();
+      shipPreviews.push({ cv, cc, skin });
+      drawShipPreview({ cv, cc, skin });
       const name = document.createElement("div");
       name.className = "sname"; name.textContent = skin.name;
       const tag = document.createElement("div");
@@ -3647,7 +3129,10 @@
       TRAILS.update(state.trail, dt);          // let the trail's embers fade out
       if (state.crashTimer > 0.5) restartRun(); // auto-respawn (Geometry Dash style)
     } else updateParticles(dt);
-    if (state.scene === "skins" && shopTab === "trails") drawTrailPreviews(dt);
+    if (state.scene === "skins") {
+      if (shopTab === "trails") drawTrailPreviews(dt);
+      else for (const p of shipPreviews) drawShipPreview(p);
+    }
 
     // animate the level-clear coin total counting up
     if (state.coinAnim) {

@@ -38,24 +38,38 @@
   const rnd = Math.random;
   let paintShip = null;
 
-  function make() { return { pts: [], parts: [], acc: 0 }; }
+  function make() { return { pts: [], parts: [], acc: 0, sampleAcc: 0, previous: null }; }
 
   // ----- per-frame bookkeeping ---------------------------------------------
   function step(tr, x, y, dt, t, def, skin, extra) {
     extra = extra || {};
-    tr.pts.push({ x, y, vy: extra.vy || 0, g: extra.g || 1 });
-    if (tr.pts.length > MAX_PTS) tr.pts.shift();
+    // Fixed-rate history keeps ribbon length and Echo spacing stable on 120 Hz screens.
+    dt = Math.max(0, Math.min(dt, 0.1));
+    update(tr, dt);
+    const now = { x, y, vy: extra.vy || 0, g: extra.g || 1, age: 0 };
+    if (!tr.previous) tr.pts.push(now);
+    else {
+      tr.sampleAcc += dt;
+      while (tr.sampleAcc >= 1 / 60) {
+        tr.sampleAcc -= 1 / 60;
+        const f = dt ? 1 - tr.sampleAcc / dt : 1, a = tr.previous;
+        tr.pts.push({ x: a.x + (x - a.x) * f, y: a.y + (y - a.y) * f,
+          vy: a.vy + (now.vy - a.vy) * f, g: now.g, age: tr.sampleAcc });
+      }
+    }
+    tr.previous = now;
+    if (tr.pts.length > MAX_PTS) tr.pts.splice(0, tr.pts.length - MAX_PTS);
     let life;
     switch (def.id) {
       case "inferno":                    // embers pour out of the engine and drift back
-        tr.acc += dt * 170;
+        tr.acc += dt * 65;
         while (tr.acc >= 1) {
           tr.acc -= 1; life = 0.3 + rnd() * 0.3;
-          tr.parts.push({ kind: "flame", x: x - 10 + rnd() * 4, y: y + (rnd() - 0.5) * 8, vx: -30 - rnd() * 70, vy: -10 - rnd() * 50, life, max: life, r0: 3.5 + rnd() * 4 });
+          tr.parts.push({ kind: "flame", x: x - 10 + rnd() * 4, y: y + (rnd() - 0.5) * 8, vx: -30 - rnd() * 70, vy: (rnd() - 0.5) * 25, life, max: life, r0: 2.5 + rnd() * 3 });
         }
         break;
       case "stardust":                   // slow twinkling stars
-        tr.acc += dt * 48;
+        tr.acc += dt * 30;
         while (tr.acc >= 1) {
           tr.acc -= 1; life = 0.6 + rnd() * 0.7;
           tr.parts.push({ kind: "star", x: x - 8 + (rnd() - 0.5) * 8, y: y + (rnd() - 0.5) * 20, vx: -10 - rnd() * 40, vy: (rnd() - 0.5) * 40, life, max: life,
@@ -94,14 +108,15 @@
         }
         break;
     }
-    update(tr, dt);
   }
 
   function update(tr, dt) {
+    for (const p of tr.pts) p.age += dt;
+    tr.pts = tr.pts.filter(p => p.age < 1.2);
     if (!tr.parts.length) return;
     for (const p of tr.parts) {
       p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
-      if (p.kind === "flame") { p.vy -= 90 * dt; p.vx *= Math.max(0, 1 - 2 * dt); }   // fire rises and slows
+      if (p.kind === "flame") { p.vy -= 35 * dt; p.vx *= Math.max(0, 1 - 2 * dt); }   // fire rises and slows
       else if (p.kind === "bubble") p.x += Math.sin(p.spin + p.life * p.tw) * 30 * dt;        // bubbles wobble
       else if (p.kind === "confetti") { p.vy += 120 * dt; p.vx *= Math.max(0, 1 - 1.5 * dt); } // paper flutters down
     }
@@ -110,46 +125,62 @@
 
   // ----- painting -----------------------------------------------------------
   function draw(c, tr, camX, t, def, skin) {
+    c.save();
     switch (def.id) {
       case "rainbow":   drawRainbow(c, tr.pts, camX, t); break;
-      case "inferno":   drawStreak(c, tr.pts.slice(-16), camX, "#ff9a3c", 0.3, 4); drawFlames(c, tr.parts, camX); break;
+      case "inferno":   drawFireRibbon(c, tr.pts, camX, t); drawFlames(c, tr.parts, camX); break;
       case "stardust":  drawStreak(c, tr.pts.slice(-24), camX, "#ffffff", 0.16, 3); drawStars(c, tr.parts, camX, t); break;
       case "lightning": drawLightning(c, tr.pts, camX, t); drawSparks(c, tr.parts, camX); break;
       case "echo":      drawStreak(c, tr.pts.slice(-18), camX, skin.trail, 0.25, 4); drawEcho(c, tr.pts, camX, t, skin); break;
       case "bubbles":   drawStreak(c, tr.pts.slice(-14), camX, "#9fe0ff", 0.18, 3); drawBubbles(c, tr.parts, camX); break;
       case "confetti":  drawConfetti(c, tr.parts, camX, t); break;
       case "hearts":    drawStreak(c, tr.pts.slice(-14), camX, "#ff8fb8", 0.2, 3); drawHearts(c, tr.parts, camX, t); break;
-      default:          drawStreak(c, tr.pts.slice(-18), camX, skin.trail, 0.5, 6);     // classic
+      default:          drawStreak(c, tr.pts.slice(-26), camX, skin.trail, 0.65, 5);     // classic
     }
+    c.restore();
   }
 
-  // tapered line through the points (the original trail)
+  // Continuous filled ribbons avoid the bright seams of overlapping line segments.
+  function ribbon(c, pts, camX, color, width, alpha, offset, ripple, t) {
+    if (pts.length < 2) return;
+    const first = pts[0], last = pts[pts.length - 1], n = pts.length;
+    const g = c.createLinearGradient(first.x - camX, first.y, last.x - camX + 0.01, last.y);
+    g.addColorStop(0, color + "00"); g.addColorStop(0.45, color + "60"); g.addColorStop(1, color);
+    c.fillStyle = g; c.globalAlpha = alpha * Math.max(0, 1 - last.age / 1.2);
+    c.beginPath();
+    for (const side of [-1, 1]) {
+      for (let j = 0; j < n; j++) {
+        const i = side < 0 ? j : n - 1 - j, p = pts[i], f = i / (n - 1);
+        const y = p.y + offset * f + Math.sin(p.x * 0.06 - t * 5) * ripple * (1 - f) + side * width * f / 2;
+        if (side < 0 && j === 0) c.moveTo(p.x - camX - 11, y); else c.lineTo(p.x - camX - 11, y);
+      }
+    }
+    c.closePath(); c.fill();
+  }
   function drawStreak(c, pts, camX, col, aMax, wMax) {
-    const n = pts.length; if (n < 2) return;
-    c.strokeStyle = col; c.lineCap = "round";
-    for (let i = 1; i < n; i++) {
-      const a = pts[i - 1], b = pts[i], f = i / n;
-      c.globalAlpha = f * aMax; c.lineWidth = f * wMax;
-      c.beginPath(); c.moveTo(a.x - camX, a.y); c.lineTo(b.x - camX, b.y); c.stroke();
-    }
-    c.globalAlpha = 1;
+    c.save();
+    ribbon(c, pts, camX, col, wMax * 2.2, aMax * 0.13, 0, 0, 0);
+    ribbon(c, pts, camX, col, wMax, aMax * 0.85, 0, 0, 0);
+    ribbon(c, pts, camX, "#edffff", wMax * 0.24, aMax * 0.85, 0, 0, 0);
+    c.restore();
   }
 
-  // a rippling ribbon whose hue slides along its length
+  // Six parallel silk ribbons; their ripples settle as they approach the ship.
   function drawRainbow(c, pts, camX, t) {
-    const all = pts.slice(-34), n = all.length; if (n < 2) return;
-    c.lineCap = "round";
-    for (let i = 1; i < n; i++) {
-      const a = all[i - 1], b = all[i], f = i / n;
-      const hue = ((i * 11 - t * 240) % 360 + 360) % 360;
-      const wave = Math.sin(i * 0.55 - t * 10) * 3 * (1 - f);       // ripple that settles toward the ship
-      c.strokeStyle = `hsl(${hue}, 100%, 62%)`;
-      c.globalAlpha = 0.22 * f; c.lineWidth = 2 + f * 12;            // soft outer glow
-      c.beginPath(); c.moveTo(a.x - camX, a.y + wave); c.lineTo(b.x - camX, b.y + wave); c.stroke();
-      c.globalAlpha = 0.9 * f; c.lineWidth = 1 + f * 6;              // bright core
-      c.beginPath(); c.moveTo(a.x - camX, a.y + wave); c.lineTo(b.x - camX, b.y + wave); c.stroke();
+    const all = pts.slice(-42);
+    const colors = ["#ff6b9c", "#ffb966", "#ffed91", "#8aefb5", "#74d7ff", "#be9cff"];
+    c.save();
+    for (let band = 0; band < colors.length; band++) {
+      ribbon(c, all, camX, colors[band], 1.6, 0.85, (band - 2.5) * 1.45, 3, t);
     }
-    c.globalAlpha = 1;
+    c.restore();
+  }
+
+  function drawFireRibbon(c, pts, camX, t) {
+    const fire = pts.slice(-22).map((p, i, all) => ({ ...p,
+      y: p.y + Math.sin(p.x * 0.17 - t * 16) * 3 * (1 - i / all.length) }));
+    drawStreak(c, fire, camX, "#ff642e", 0.85, 9);
+    drawStreak(c, fire.slice(-10), camX, "#ffda70", 0.9, 4);
   }
 
   function drawFlames(c, parts, camX) {
@@ -159,7 +190,11 @@
       const f = p.life / p.max;                                     // 1 = just born
       c.globalAlpha = 0.85 * f;
       c.fillStyle = f > 0.7 ? "#fff3b0" : f > 0.4 ? "#ffa726" : "#ff3d1c";
-      c.beginPath(); c.arc(p.x - camX, p.y, p.r0 * (0.35 + 0.65 * f), 0, TAU); c.fill();
+      const r = p.r0 * (0.25 + 0.75 * f);
+      c.save(); c.translate(p.x - camX, p.y); c.scale(r, r);
+      c.beginPath(); c.moveTo(1.1, 0); c.quadraticCurveTo(0, -1, -2.5, -0.2);
+      c.quadraticCurveTo(-0.4, 0.8, 1.1, 0); c.fill(); c.restore();
+      if (f < 0.45) { c.fillStyle = "#ffd796"; c.fillRect(p.x - camX, p.y, 0.8, 0.8); }
     }
     c.restore();
   }
@@ -178,8 +213,13 @@
     for (const p of parts) {
       if (p.kind !== "star") continue;
       const f = p.life / p.max, tw = 0.55 + 0.45 * Math.sin(t * p.tw + p.spin);
+      c.globalAlpha = f * tw * 0.35;
+      const glow = c.createRadialGradient(p.x - camX, p.y, 0, p.x - camX, p.y, p.r0 * 2);
+      glow.addColorStop(0, p.col); glow.addColorStop(1, p.col + "00"); c.fillStyle = glow;
+      c.beginPath(); c.arc(p.x - camX, p.y, p.r0 * 2, 0, TAU); c.fill();
       c.globalAlpha = f * tw; c.fillStyle = p.col;
-      sparkle(c, p.x - camX, p.y, p.r0 * (0.6 + 0.4 * f), p.spin + t * 2);
+      sparkle(c, p.x - camX, p.y, p.r0 * (0.6 + 0.4 * f), p.spin + t * 0.5);
+      c.fillStyle = "#fff"; c.beginPath(); c.arc(p.x - camX, p.y, 0.65, 0, TAU); c.fill();
     }
     c.restore();
   }
@@ -191,13 +231,20 @@
       const f = p.life / p.max, r = p.r0 * (0.7 + 0.3 * (1 - f)), x = p.x - camX;
       if (f < 0.12) {                                                  // pop: a ring flying apart
         c.globalAlpha = f / 0.12 * 0.8; c.strokeStyle = "#e6f7ff";
-        c.beginPath(); c.arc(x, p.y, r * (1 + (0.12 - f) * 12), 0, TAU); c.stroke();
+        const radius = r * (1 + (0.12 - f) * 12);
+        for (let i = 0; i < 5; i++) {
+          const a = i * TAU / 5 + p.spin;
+          c.beginPath(); c.arc(x + Math.cos(a) * radius, p.y + Math.sin(a) * radius, 0.65, 0, TAU); c.stroke();
+        }
         continue;
       }
       c.globalAlpha = 0.75 * Math.min(1, f * 3);
-      c.strokeStyle = "#bfe9ff"; c.fillStyle = "rgba(160,220,255,0.18)";
+      c.strokeStyle = "#bfe9ff"; c.fillStyle = "rgba(160,220,255,0.08)";
       c.beginPath(); c.arc(x, p.y, r, 0, TAU); c.fill(); c.stroke();
-      c.fillStyle = "#ffffff"; c.beginPath(); c.arc(x - r * 0.35, p.y - r * 0.35, r * 0.28, 0, TAU); c.fill();   // glint
+      c.strokeStyle = "#f2c6ff"; c.lineWidth = 0.65;
+      c.beginPath(); c.arc(x, p.y, r * 0.85, 0.1, 1.8); c.stroke();
+      c.strokeStyle = "#fff"; c.lineWidth = 1;
+      c.beginPath(); c.arc(x, p.y, r * 0.65, 3.6, 4.8); c.stroke();
     }
     c.restore();
   }
@@ -208,7 +255,12 @@
       const f = p.life / p.max, flip = Math.abs(Math.cos(t * p.tw * 0.7 + p.spin));   // squashes as it tumbles
       c.globalAlpha = Math.min(1, f * 2.5); c.fillStyle = p.col;
       c.save(); c.translate(p.x - camX, p.y); c.rotate(p.spin + t * p.tw);
-      c.fillRect(-p.r0, -p.r0 * 0.6 * flip - 0.3, p.r0 * 2, p.r0 * 1.2 * flip + 0.6);
+      c.scale(1, 0.15 + flip * 0.85);
+      if (p.spin > Math.PI) {
+        c.beginPath(); c.moveTo(-p.r0, -p.r0 * 0.5); c.quadraticCurveTo(0, -p.r0, p.r0, 0);
+        c.lineTo(p.r0, p.r0 * 0.6); c.quadraticCurveTo(0, -p.r0 * 0.3, -p.r0, p.r0 * 0.2); c.fill();
+      } else c.fillRect(-p.r0 * 0.7, -p.r0, p.r0 * 1.4, p.r0 * 2);
+      c.globalAlpha *= 0.4; c.fillStyle = "#fff"; c.fillRect(-p.r0 * 0.6, -p.r0 * 0.5, p.r0, 0.5);
       c.restore();
     }
     c.restore();
@@ -226,7 +278,11 @@
       if (p.kind !== "heart") continue;
       const f = p.life / p.max, r = p.r0 * (0.8 + 0.2 * Math.sin(t * p.tw + p.spin));   // a little heartbeat
       c.globalAlpha = Math.min(1, f * 2.5) * 0.9; c.fillStyle = p.col;
-      heart(c, p.x - camX, p.y, r);
+      c.save(); c.translate(p.x - camX, p.y); c.rotate(Math.sin(t * 2 + p.spin) * 0.3);
+      heart(c, 0, 0, r);
+      c.strokeStyle = "#ffd5e9"; c.lineWidth = 0.55; c.stroke();
+      c.fillStyle = "#fff0f7"; c.beginPath(); c.ellipse(-r * 0.35, -r * 0.3, r * 0.18, r * 0.3, 0.6, 0, TAU); c.fill();
+      c.restore();
     }
     c.restore();
   }
@@ -239,23 +295,27 @@
   }
   function drawLightning(c, pts, camX, t) {
     const n = pts.length; if (n < 3) return;
-    const seed = Math.floor(t * 30) * 7919, start = Math.max(0, n - 26), span = n - start;
+    const seed = Math.floor(t * 18) * 7919, start = Math.max(0, n - 26), span = n - start;
     const path = [];
     for (let i = start; i < n; i++) {
-      const f = (i - start) / span;                                   // 0 = tail .. 1 = ship
-      path.push({ x: pts[i].x - camX, y: pts[i].y + (hash(seed + i * 31) - 0.5) * 14 * (1 - f * 0.7) });
+      const f = (i - start) / (span - 1);                                   // 0 = tail .. 1 = ship
+      path.push({ x: pts[i].x - camX - 12, y: pts[i].y + (hash(seed + i * 31) - 0.5) * 12 * (1 - f) });
     }
     c.save(); c.globalCompositeOperation = "lighter"; c.lineCap = "round"; c.lineJoin = "round";
     const stroke = (w, col, a) => {
-      c.lineWidth = w; c.strokeStyle = col; c.globalAlpha = a;
-      c.beginPath(); path.forEach((p, i) => (i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y))); c.stroke();
+      c.lineWidth = w; c.strokeStyle = col;
+      for (let i = 1; i < path.length; i++) {
+        c.globalAlpha = a * i / (path.length - 1) * Math.max(0, 1 - pts[pts.length - 1].age / 1.2);
+        c.beginPath(); c.moveTo(path[i - 1].x, path[i - 1].y); c.lineTo(path[i].x, path[i].y); c.stroke();
+      }
     };
     stroke(7, "#3fb8ff", 0.22); stroke(3, "#8fe3ff", 0.5); stroke(1.3, "#ffffff", 0.95);
     c.lineWidth = 1.2; c.strokeStyle = "#c9f1ff"; c.globalAlpha = 0.8;   // forks
     for (let i = 2; i < path.length - 2; i += 3) {
       const p = path[i], h1 = hash(seed + i * 131), h2 = hash(seed + i * 173);
       if (h1 < 0.45) continue;
-      const len = 6 + h2 * 10, dir = h1 > 0.72 ? -1 : 1;
+      const len = 4 + h2 * 8, dir = h1 > 0.72 ? -1 : 1;
+      c.globalAlpha = 0.65 * i / path.length * Math.max(0, 1 - pts[pts.length - 1].age / 1.2);
       c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x - len * 0.6, p.y + dir * len * 0.7); c.lineTo(p.x - len * 1.3, p.y + dir * len * 0.9); c.stroke();
     }
     c.restore();
@@ -265,7 +325,8 @@
     for (const p of parts) {
       if (p.kind !== "spark") continue;
       c.globalAlpha = p.life / p.max;
-      c.beginPath(); c.arc(p.x - camX, p.y, p.r0, 0, TAU); c.fill();
+      c.strokeStyle = "#d7f7ff"; c.lineWidth = 0.8;
+      c.beginPath(); c.moveTo(p.x - camX, p.y); c.lineTo(p.x - camX - p.vx * 0.035, p.y - p.vy * 0.035); c.stroke();
     }
     c.restore();
   }
@@ -273,7 +334,7 @@
   // Echo: ghost ships at fixed distances back along the path (spacing doesn't
   // depend on speed). Each ghost is painted to an offscreen canvas first so
   // its transparency is uniform no matter what the skin does with alpha.
-  const GHOSTS = [[26, 0.42], [52, 0.3], [78, 0.19], [104, 0.1]];
+  const GHOSTS = [[30, 0.32], [59, 0.22], [87, 0.13], [114, 0.06]];
   let off = null, offCtx = null;
   function offscreen() {
     if (!off) {
@@ -300,10 +361,13 @@
       const p = pointBack(pts, GHOSTS[k][0]); if (!p) continue;
       oc.setTransform(1, 0, 0, 1, 0, 0); oc.clearRect(0, 0, 144, 144);
       oc.translate(72, 72); oc.scale(2, 2);
-      paintShip(oc, skin, false, t);
+      paintShip(oc, skin, false, t - (k + 1) * 0.1);
+      oc.globalCompositeOperation = "source-atop";
+      oc.fillStyle = skin.trail; oc.globalAlpha = 0.38; oc.fillRect(-36, -36, 72, 72);
+      oc.globalAlpha = 1; oc.globalCompositeOperation = "source-over";
       const g = p.g || 1, angle = Math.max(-0.45, Math.min(0.45, p.vy / 440 * 0.5)), s = 1 - k * 0.06;
       c.save();
-      c.globalAlpha = GHOSTS[k][1];
+      c.globalAlpha = GHOSTS[k][1] * Math.max(0, 1 - pts[pts.length - 1].age / 1.2);
       c.translate(p.x - camX, p.y); c.scale(s, g * s); c.rotate(angle * g);
       c.drawImage(off, -36, -36, 72, 72);
       c.restore();
